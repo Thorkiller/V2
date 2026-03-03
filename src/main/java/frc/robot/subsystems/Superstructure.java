@@ -316,8 +316,6 @@ public class Superstructure extends SubsystemBase{
                 }
                 if (dashboardIntakeIn) {
                     intake.goHome();
-                } else {
-                    intake.stop();
                 }
                 shooter.setSpindexerManualEnabled(false);
 
@@ -361,7 +359,7 @@ public class Superstructure extends SubsystemBase{
 
             case PRE_SHOOT:
                  double disntance = 0;
-        if(DriverStation.getAlliance().get() == Alliance.Red){
+        if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red) {
             disntance = drive.getPose().getTranslation().getDistance(Constants.FieldConstants.HUB_RED.toTranslation2d());
 
         }
@@ -386,7 +384,9 @@ double boostedShooterVelocity =
             shooter.preShoot(boostedShooterVelocity, false);
            }
             
-        // intake.goHome();
+            if (dashboardIntakeIn) {
+                intake.goHome();
+            }
             if (dashboardSpindexerReverse) {
                 shooter.setSpindexerManualOverride(true, true);
             } else {
@@ -418,7 +418,7 @@ double boostedShooterVelocity =
     public void shootingPipeline(){
 
         double disntance = 0;
-        if(DriverStation.getAlliance().get() == Alliance.Red){
+        if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red) {
             disntance = drive.getPose().getTranslation().getDistance(Constants.FieldConstants.HUB_RED.toTranslation2d());
 
         }
@@ -636,7 +636,7 @@ double boostedShooterVelocity =
     private Translation2d getHubDirection() {
         Pose2d robotPose = drive.getPose();
   Translation2d disntance = new Translation2d() ;
-        if(DriverStation.getAlliance().get() == Alliance.Red){
+        if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red) {
             disntance = Constants.FieldConstants.HUB_RED.toTranslation2d().minus(robotPose.getTranslation());
 
         }
