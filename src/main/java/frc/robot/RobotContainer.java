@@ -33,6 +33,8 @@ import edu.wpi.first.units.measure.LinearVelocity;
 import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
+
 import java.util.Random;
 
 import frc.robot.commands.DriveCommands;
@@ -171,11 +173,24 @@ Transform3d robotToRightCam = new Transform3d(
       driveSub.setPose(new Pose2d(3,3,new Rotation2d()));
      
     }
-     NamedCommands.registerCommand("shoot", Commands.run(()-> {
-        DriveCommands.joystickDriveAtAngle(driveSub, ()->0, ()->0, ()-> superstructure.getHubHeading());
-        superstructure.requestShootingPRE();
-      }));
-      autChooser = new LoggedDashboardChooser<>("Auto Chooser",AutoBuilder.buildAutoChooser());
+  NamedCommands.registerCommand(
+    "shoot",
+    DriveCommands.joystickDriveAtAngle(driveSub, () -> 0, () -> 0, superstructure::getHubHeading)
+        .alongWith(Commands.run(() -> superstructure.requestShootingPRE()))
+);
+
+      autChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
+      autChooser.addOption(
+          "Drive Wheel Radius Characterization", DriveCommands.wheelRadiusCharacterization(driveSub));
+      autChooser.addOption("Drive Simple FF Characterization", DriveCommands.feedforwardCharacterization(driveSub));
+      autChooser.addOption(
+          "Drive SysId (Quasistatic Forward)", driveSub.sysIdQuasistatic(SysIdRoutine.Direction.kForward));
+      autChooser.addOption(
+          "Drive SysId (Quasistatic Reverse)", driveSub.sysIdQuasistatic(SysIdRoutine.Direction.kReverse));
+      autChooser.addOption(
+          "Drive SysId (Dynamic Forward)", driveSub.sysIdDynamic(SysIdRoutine.Direction.kForward));
+      autChooser.addOption(
+          "Drive SysId (Dynamic Reverse)", driveSub.sysIdDynamic(SysIdRoutine.Direction.kReverse));
 
   }
 
@@ -278,7 +293,6 @@ driveSub.setDefaultCommand(DriveCommands.joystickDrive(
    public void resetSimulationField() {
         if (Constants.currentMode != Constants.Mode.SIM) return;
 
-        driveSimulation.setSimulationWorldPose(new Pose2d(3, 3, new Rotation2d()));
         SimulatedArena.getInstance().resetFieldForAuto();
     }
 

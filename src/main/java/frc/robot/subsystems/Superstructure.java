@@ -667,7 +667,7 @@ public class Superstructure extends SubsystemBase{
 
  public Command spin(boolean spinn){
         return Commands.runOnce(()->{
-            spin(spinn);
+            spindexer(spinn);
         } );
     }
     public Command goIn(boolean in){
