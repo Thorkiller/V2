@@ -5,6 +5,7 @@ import static edu.wpi.first.units.Units.RadiansPerSecond;
 import edu.wpi.first.math.util.Units;
 import frc.robot.util.PhoenixUtil;
 import org.ironmaple.simulation.drivesims.GyroSimulation;
+import edu.wpi.first.math.geometry.Rotation2d;
 
 public class GyroIOSim implements GyroIO {
     private final GyroSimulation gyroSimulation;
@@ -22,5 +23,10 @@ public class GyroIOSim implements GyroIO {
 
         inputs.odometryYawTimestamps = PhoenixUtil.getSimulationOdometryTimeStamps();
         inputs.odometryYawPositions = gyroSimulation.getCachedGyroReadings();
+    }
+
+    @Override
+    public void zeroYaw() {
+        gyroSimulation.setRotation(new Rotation2d());
     }
 }

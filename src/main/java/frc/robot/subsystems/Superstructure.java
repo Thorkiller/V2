@@ -57,7 +57,8 @@ public class Superstructure extends SubsystemBase{
     DASHBOARD,
     SHOOTING,
     REVUP,
-    PRE_SHOOT
+    PRE_SHOOT,
+    FUNNLING
 
   }
   public enum SuperstructureCurrentState {
@@ -67,7 +68,8 @@ public class Superstructure extends SubsystemBase{
     DASHBOARD,
     SHOOTING,
     REVUP,
-    PRE_SHOOT 
+    PRE_SHOOT,
+    FUNNLING 
   }
     public Drive drive;
     public Shooter shooter;
@@ -93,6 +95,12 @@ public class Superstructure extends SubsystemBase{
     private static final double kIntakeStopDistanceMeters = 0.15;
            private HubShotSolver.Result target = new HubShotSolver.Result(0,0);
     private static final double kRpmToRps = 1.0 / 60.0;
+
+    public boolean in = false;
+    public boolean spin = false;
+    private static final double kSpinReverseSeconds = 1.0;
+    private boolean lastSpin = false;
+    private double spinReverseUntilSeconds = 0.0;
 
     private final DoubleSubscriber shooterTargetRpmSub =
         NetworkTableInstance.getDefault()
@@ -122,6 +130,34 @@ public class Superstructure extends SubsystemBase{
         NetworkTableInstance.getDefault()
             .getBooleanTopic("/Dashboard/SpindexerReverse")
             .subscribe(false);
+    private final BooleanSubscriber dashboardIntakePulseSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/Dashboard/Intake")
+            .subscribe(false);
+    private final BooleanSubscriber dashboardFunnlingSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/Dashboard/Funnling")
+            .subscribe(false);
+    private final BooleanSubscriber dashboardShootPulseSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/Dashboard/Shoot")
+            .subscribe(false);
+    private final BooleanSubscriber dashboardZeroGyroPulseSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/Dashboard/ZeroGyro")
+            .subscribe(false);
+    private final BooleanSubscriber dashboardDriveModePulseSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/Dashboard/DriveMode")
+            .subscribe(false);
+    private final BooleanSubscriber dashboardConfirmPulseSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/Dashboard/Confirm")
+            .subscribe(false);
+    private final BooleanSubscriber dashboardManualSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/Dashboard/Manual")
+            .subscribe(false);
     private double dashboardShooterRpm = 0.0;
     private double dashboardShooterBoostRpm = 0.0;
     private boolean dashboardIntakeIn = false;
@@ -129,6 +165,9 @@ public class Superstructure extends SubsystemBase{
     private double dashboardHoodSetpointDeg = 0.0;
     private boolean dashboardSpindexerEnabled = false;
     private boolean dashboardSpindexerReverse = false;
+    private boolean dashboardFunnling = false;
+    private boolean dashboardManual = false;
+    private boolean dashboardConfirm = false;
     private long lastDashboardSetpointChange = 0;
 
     private final SwerveRequest.RobotCentric intakeRequest =
@@ -256,6 +295,40 @@ public class Superstructure extends SubsystemBase{
             spindexerReverse = sample.value;
         }
         dashboardSpindexerReverse = spindexerReverse;
+
+        boolean funnling = dashboardFunnlingSub.get();
+        for (var sample : dashboardFunnlingSub.readQueue()) {
+            funnling = sample.value;
+        }
+        dashboardFunnling = funnling;
+
+        boolean manual = dashboardManualSub.get();
+        for (var sample : dashboardManualSub.readQueue()) {
+            manual = sample.value;
+        }
+        dashboardManual = manual;
+
+        boolean shootPulse = consumePulse(dashboardShootPulseSub);
+        boolean intakePulse = consumePulse(dashboardIntakePulseSub);
+        boolean drivePulse = consumePulse(dashboardDriveModePulseSub);
+        boolean zeroGyroPulse = consumePulse(dashboardZeroGyroPulseSub);
+        boolean confirmPulse = consumePulse(dashboardConfirmPulseSub);
+
+        if (zeroGyroPulse) {
+            drive.zeroGyro();
+        }
+        if (drivePulse) {
+            wantedState = SuperstructureWantedState.DRIVING;
+        }
+        if (intakePulse) {
+            wantedState = SuperstructureWantedState.INTAKING;
+        }
+        if (shootPulse) {
+            wantedState = SuperstructureWantedState.PRE_SHOOT;
+        }
+        if (confirmPulse) {
+            dashboardConfirm = true;
+        }
     }
 
     private void handleStates() {
@@ -266,6 +339,7 @@ public class Superstructure extends SubsystemBase{
                 
                 break;
             case DRIVING:
+                currentState = SuperstructureCurrentState.DRIVING;
             // if(drive.getPose().getX() < 5.7){
             //     currentState = SuperstructureCurrentState.REVUP;
             // }
@@ -289,8 +363,24 @@ public class Superstructure extends SubsystemBase{
                 }
                 break;
             case PRE_SHOOT:
-            currentState = SuperstructureCurrentState.PRE_SHOOT;
+            currentState = dashboardFunnling
+                ? SuperstructureCurrentState.FUNNLING
+                : SuperstructureCurrentState.PRE_SHOOT;
+            break;
+            case FUNNLING:
+            currentState = SuperstructureCurrentState.FUNNLING;
+            break;
         }
+    }
+
+    private boolean consumePulse(BooleanSubscriber subscriber) {
+        boolean triggered = false;
+        for (var sample : subscriber.readQueue()) {
+            if (sample.value) {
+                triggered = true;
+            }
+        }
+        return triggered;
     }
     public boolean shootCheck(){
         HubShotSolver.Result target = target();
@@ -306,15 +396,21 @@ public class Superstructure extends SubsystemBase{
     }
 
     private void applyStates() {
+        if (currentState != SuperstructureCurrentState.PRE_SHOOT) {
+            lastSpin = spin;
+        }
+        if (currentState != SuperstructureCurrentState.PRE_SHOOT
+            && currentState != SuperstructureCurrentState.FUNNLING) {
+            dashboardConfirm = false;
+        }
         switch (currentState) {
             case IDLE:
             
             case DRIVING:
                 shooter.setOff();
-                if (dashboardHoodIn) {
                     hood.setIdle();
-                }
-                if (dashboardIntakeIn) {
+                
+                if (dashboardIntakeIn || in) {
                     intake.goHome();
                 }
                 shooter.setSpindexerManualEnabled(false);
@@ -326,6 +422,7 @@ public class Superstructure extends SubsystemBase{
                 hood.setIdle();
                 intake.startIntake();
                 shooter.setSpindexerManualEnabled(false);
+                
                 break;
             case DASHBOARD:
                 shooter.dashboard(
@@ -337,7 +434,10 @@ public class Superstructure extends SubsystemBase{
                 } else {
                     hood.moveToAngle(dashboardHoodSetpointDeg);
                 }
-                intake.startIntake();
+                if(dashboardIntakeIn || in){
+                    intake.goHome();
+                
+                }
                 break;
             case SHOOTING:
                 shootingPipeline();
@@ -368,32 +468,82 @@ public class Superstructure extends SubsystemBase{
 
 
         }
-            
-               LookUpTable.LookUpTableTest lookUpTableTest = new LookUpTable().LookUpTableOutput(disntance);
+
+        double boostedShooterVelocity = 0.0;
+        if (dashboardManual) {
+            boostedShooterVelocity = 16.0;
+        } else {
+            LookUpTable.LookUpTableTest lookUpTableTest = new LookUpTable().LookUpTableOutput(disntance);
             double shooterFinalRPM = lookUpTableTest.getRPS();
-            double hooddeg = lookUpTableTest.getAngle();
             // shooter.preShoot(target.velocityMps);
-            hood.moveToAngle(hooddeg );
-double boostedShooterVelocity =
-           ( shooterFinalRPM/60 ) + (dashboardShooterBoostRpm * kRpmToRps);
-           if (drive.getChassisSpeeds().omegaRadiansPerSecond < 2.5) {
-             shooter.preShoot(boostedShooterVelocity,true);       
+            boostedShooterVelocity =
+                (shooterFinalRPM / 60) + (dashboardShooterBoostRpm * kRpmToRps);
+         }
+        dashboardConfirm = true;
+        if (dashboardConfirm) {
+            if (dashboardManual) {
+                hood.moveToAngle(3);
+            } else {
+                LookUpTable.LookUpTableTest lookUpTableTest = new LookUpTable().LookUpTableOutput(disntance);
+                double hooddeg = lookUpTableTest.getAngle();
+                hood.moveToAngle(hooddeg);
+            }
+            if (drive.getChassisSpeeds().omegaRadiansPerSecond < 2.5) {
+              shooter.preShoot(boostedShooterVelocity,true);       
             
-           }
-           else{
-            shooter.preShoot(boostedShooterVelocity, false);
-           }
-            
-            if (dashboardIntakeIn) {
+            }
+            else{
+             shooter.preShoot(boostedShooterVelocity, false);
+            }
+        } else {
+            hood.setIdle();
+            shooter.setOff();
+        }
+            if (dashboardIntakeIn|| in) {
                 intake.goHome();
             }
-            if (dashboardSpindexerReverse) {
+            else{
+                intake.shoot();
+            }
+            double now = Timer.getFPGATimestamp();
+            if (spin && !lastSpin) {
+                spinReverseUntilSeconds = now + kSpinReverseSeconds;
+            }
+            lastSpin = spin;
+            if (spin && dashboardConfirm) {
+                boolean reverse = now < spinReverseUntilSeconds;
+                shooter.setSpindexerManualOverride(true, reverse);
+            } else if (dashboardSpindexerReverse && dashboardConfirm) {
                 shooter.setSpindexerManualOverride(true, true);
             } else {
                 shooter.setSpindexerManualEnabled(false);
             }
              break;
+
+        case FUNNLING:
+        dashboardConfirm = true;
+
+        if (dashboardConfirm) {
+            hood.moveToAngle(4);
+            if(shooter.isAtVelocity()){
+                shooter.preShoot(80,true);
+                intake.shoot();
+            }
+            else{
+                shooter.preShoot(80, false);
+            }
+        } else {
+            hood.setIdle();
+            shooter.setOff();
         }
+
+        if(dashboardIntakeIn){
+            intake.goHome();
+        }
+        break;
+
+        }
+
 
 
     }
@@ -507,6 +657,24 @@ double boostedShooterVelocity =
         targetDistanceMeters = distanceMeters;
     }
     
+    public void intakeIn(boolean in){
+        this.in = in;
+    }
+       
+    public void spindexer(boolean spin){
+        this.spin = spin;
+    }
+
+ public Command spin(boolean spinn){
+        return Commands.runOnce(()->{
+            spin(spinn);
+        } );
+    }
+    public Command goIn(boolean in){
+        return Commands.runOnce(()->{
+            intakeIn(in);
+        } );
+    }
     public Command setIntake(){
         return Commands.runOnce(() -> {
             requestIntake();
@@ -659,9 +827,28 @@ double boostedShooterVelocity =
             + fieldSpeeds.vyMetersPerSecond * hubDirection.getY();
     }
 
+    public Rotation2d getRotationToPoint( Translation2d fieldTarget) {
+        Pose2d robotPose = drive.getPose();
+        Translation2d delta = fieldTarget.minus(robotPose.getTranslation());
+        if (delta.getNorm() < 1e-6) {
+            return robotPose.getRotation();
+        }
+        return new Rotation2d(delta.getX(), delta.getY());
+    }
+
+
     public Rotation2d getHubHeading() {
-        Translation2d hubDirection = getHubDirection();
-        return new Rotation2d(hubDirection.getX(), hubDirection.getY()).plus(Rotation2d.fromDegrees(180));
+        Translation2d target;
+        if (currentState == SuperstructureCurrentState.FUNNLING) {
+            target = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
+                ? new Translation2d(15.5, 6.850)
+                : new Translation2d(2, 7);
+        } else {
+            target = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
+                ? Constants.FieldConstants.HUB_RED.toTranslation2d()
+                : Constants.FieldConstants.HUB_BLUE.toTranslation2d();
+        }
+        return getRotationToPoint(target).plus(Rotation2d.fromDegrees(180));
     }
 
     public boolean isShootingRequested() {

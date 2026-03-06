@@ -76,7 +76,7 @@ public class Drive extends SubsystemBase implements Vision.VisionConsumer {
     private static final double ROBOT_MASS_KG = 74.088;
     private static final double ROBOT_MOI = 6.883;
     private static final double WHEEL_COF = 1.2;
-    private static final RobotConfig PP_CONFIG = new RobotConfig(
+    private static final RobotConfig    PP_CONFIG = new RobotConfig(
             ROBOT_MASS_KG,
             ROBOT_MOI,
             new ModuleConfig(
@@ -151,7 +151,7 @@ public class Drive extends SubsystemBase implements Vision.VisionConsumer {
                 this::setPose,
                 this::getChassisSpeeds,
                 this::runVelocity,
-                new PPHolonomicDriveController(new PIDConstants(5.0, 0.0, 0.0), new PIDConstants(5.0, 0.0, 0.0)),
+                new PPHolonomicDriveController(new PIDConstants(1, 0.0, 0.0), new PIDConstants(1, 0.0, 0.0)),
                 PP_CONFIG,
                 () -> DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red,
                 this);
@@ -343,6 +343,12 @@ public class Drive extends SubsystemBase implements Vision.VisionConsumer {
     public void setPose(Pose2d pose) {
         resetSimulationPoseCallBack.accept(pose);
         poseEstimator.resetPosition(rawGyroRotation, getModulePositions(), pose);
+    }
+
+    /** Zeros the gyro heading and keeps the current field position. */
+    public void zeroGyro() {
+        Pose2d pose = getPose();
+        setPose(new Pose2d(pose.getX(), pose.getY(), new Rotation2d()));
     }
 
     /** Adds a new timestamped vision measurement. */

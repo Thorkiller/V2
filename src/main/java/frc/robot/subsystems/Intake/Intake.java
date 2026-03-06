@@ -20,6 +20,7 @@ import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.simulation.DCMotorSim;
 import edu.wpi.first.wpilibj.simulation.ElevatorSim;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 
 import static edu.wpi.first.units.Units.Inches;
@@ -64,12 +65,16 @@ public class Intake extends SubsystemBase{
     private static final double kIntakePositionRotations = 17.3;
     private static final double kHomePositionRotations = 0.0;
     private static final double kIntakeVoltage = 9;
-    private static final double kHomingVoltage = -6.0;
+    private static final double kHomingVoltage = -3;
     private static final double kPositionToleranceRotations = 1.0;
     private static final double kIntakeP = 0.5;
     private static final double kIntakeI = 0.0;
     private static final double kIntakeD = 0.0;
     private static final double kMaxIntakePidVoltage = 8.0;
+    private static final double kShootPulseStopRotations = 5.0;
+    private static final double kShootPulseInSeconds = 0.15;
+    private static final double kShootPulseOutSeconds = 0.15;
+    private static final double kShootPulseOutVoltage = 2;
     private static final double kIntakeGearRatio = 10.0;
     private static final double kIntakeDrumRadiusMeters = 0.02;
     private static final double kIntakeMassKg = 2.0;
@@ -90,15 +95,20 @@ public class Intake extends SubsystemBase{
         IDLE,
         INTAKE,
         HOME,
+        SHOOT
     }
     public enum CurrentState {
         IDLE,
         INTAKE,
         HOME,
+        SHOOT
     }
 
     public WantedState wantedState = WantedState.IDLE;
     public CurrentState currentState = CurrentState.IDLE;
+    private CurrentState lastState = CurrentState.IDLE;
+    private boolean shootPulseIn = true;
+    private double shootPulseToggleTimestamp = 0.0;
 
     public Intake() {
         
@@ -143,6 +153,7 @@ public class Intake extends SubsystemBase{
         Logger.processInputs("Intake", inputs);
         handleStates();
         applyStates();
+        lastState = currentState;
     }
 
     @Override
@@ -204,6 +215,9 @@ public class Intake extends SubsystemBase{
             case HOME:
                 currentState = CurrentState.HOME;
                 break;
+                case SHOOT:
+                currentState = CurrentState.SHOOT;
+                break;
         }
 
     }
@@ -240,6 +254,26 @@ public class Intake extends SubsystemBase{
                 intakeWheels.setVoltage(0);
 
                 break;
+            case SHOOT:
+                if (currentState != lastState) {
+                    shootPulseIn = true;
+                    shootPulseToggleTimestamp = Timer.getFPGATimestamp();
+                }
+                double shootPos = intakeMotor.getPosition().getValueAsDouble();
+                if (shootPos <= kShootPulseStopRotations) {
+                    intakeMotor.setVoltage(0);
+                } else {
+                    double now = Timer.getFPGATimestamp();
+                    double duration =
+                        shootPulseIn ? kShootPulseInSeconds : kShootPulseOutSeconds;
+                    if (now - shootPulseToggleTimestamp >= duration) {
+                        shootPulseIn = !shootPulseIn;
+                        shootPulseToggleTimestamp = now;
+                    }
+                    intakeMotor.setVoltage(shootPulseIn ? kHomingVoltage : kShootPulseOutVoltage);
+                }
+                intakeWheels.setVoltage(-4);
+                break;
         }
     }
 
@@ -253,6 +287,10 @@ public class Intake extends SubsystemBase{
     public void goHome() {
         wantedState = WantedState.HOME;
     }
+      public void shoot() {
+        wantedState = WantedState.SHOOT;
+    }
+
 
     /** Stop all intake activity and hold position. */
     public void stop() {

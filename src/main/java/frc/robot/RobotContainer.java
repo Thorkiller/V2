@@ -13,10 +13,13 @@ import static edu.wpi.first.units.Units.RotationsPerSecond;
 import org.ironmaple.simulation.SimulatedArena;
 import org.ironmaple.simulation.drivesims.SwerveDriveSimulation;
 import org.ironmaple.simulation.seasonspecific.rebuilt2026.RebuiltFuelOnField;
+import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 import org.photonvision.PhotonCamera;
 
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
+import com.pathplanner.lib.auto.AutoBuilder;
+import com.pathplanner.lib.auto.NamedCommands;
 
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -30,6 +33,7 @@ import edu.wpi.first.units.measure.LinearVelocity;
 import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import java.util.Random;
 
 import frc.robot.commands.DriveCommands;
 import frc.robot.generated.TunerConstants;
@@ -77,6 +81,7 @@ Transform3d robotToRightCam = new Transform3d(
     private final Shooter shooter = new Shooter();
     private final Hood hood = new Hood();
     private final Intake intake = new Intake();
+    private final LoggedDashboardChooser<Command> autChooser;
     
     
 
@@ -86,6 +91,7 @@ Transform3d robotToRightCam = new Transform3d(
 
     private double MaxSpeed = 1.0 * TunerConstants.kSpeedAt12Volts.in(MetersPerSecond); // kSpeedAt12Volts desired top speed
     private final Superstructure superstructure;
+    private final Random superstructureSwitchRng = new Random();
 
 
     private final SwerveRequest.FieldCentric drive = new SwerveRequest.FieldCentric()
@@ -163,7 +169,14 @@ Transform3d robotToRightCam = new Transform3d(
     if( RobotBase.isSimulation()) {
       // In simulation, reset pose to origin on start
       driveSub.setPose(new Pose2d(3,3,new Rotation2d()));
+     
     }
+     NamedCommands.registerCommand("shoot", Commands.run(()-> {
+        DriveCommands.joystickDriveAtAngle(driveSub, ()->0, ()->0, ()-> superstructure.getHubHeading());
+        superstructure.requestShootingPRE();
+      }));
+      autChooser = new LoggedDashboardChooser<>("Auto Chooser",AutoBuilder.buildAutoChooser());
+
   }
 
   private void configureBindings() {
@@ -173,24 +186,44 @@ Transform3d robotToRightCam = new Transform3d(
 driveSub.setDefaultCommand(DriveCommands.joystickDrive(
                 driveSub, () -> -joystick.getLeftY(), () -> -joystick.getLeftX(), () -> -joystick.getRightX()));
 
-                joystick.rightTrigger(0.2).whileTrue(DriveCommands.joystickDriveAtAngle(driveSub, ()-> -joystick.getLeftY(), ()-> -joystick.getLeftX(),()-> (superstructure.getHubHeading())));
+                joystick.rightTrigger(0.2).whileTrue(DriveCommands.joystickDriveAtAngle(driveSub, ()-> 0, ()-> 0,()-> (superstructure.getHubHeading())));
 
 
-            joystick.leftTrigger(0.2).onTrue(superstructure.setIntake()).onFalse(superstructure.setDriving());
+            joystick.leftTrigger(0.2).onTrue(Commands.runOnce(() -> {
+                superstructure.requestIntake();
+              
+            }));
             joystick.rightTrigger(0.2)
+                
                 .onTrue(Commands.sequence(
-                    superstructure.setPreshoot()))
-                .onFalse(superstructure.setDriving());
+                    Commands.runOnce(() -> {
+                     
+                        superstructure.requestShootingPRE();
+                      
+                    }))).onFalse(superstructure.setDriving());
+                    
+                    
+                    joystick.leftBumper().onTrue(superstructure.goIn(true)).onFalse(superstructure.goIn(false));
+                    joystick.rightBumper().onTrue(superstructure.spin(true)).onFalse(superstructure.spin(false));
+
+    
 
 
                  joystick.a()
                 .onTrue(Commands.sequence(
-                    superstructure.setShooting()))
-                .onFalse(superstructure.setDriving());
+                    Commands.runOnce(() -> {
+                      if (shouldSwitchSuperstructure()) {
+                        superstructure.requestShooting();
+                      }
+                    })));
 
 
                 
-            joystick.y().onTrue(Commands.runOnce(()->superstructure.setDriving()));
+            joystick.y().onTrue(Commands.runOnce(() -> {
+              if (shouldSwitchSuperstructure()) {
+                superstructure.wantedState = Superstructure.SuperstructureWantedState.DRIVING;
+              }
+            }));
 
             joystick.x().whileTrue(Commands.runOnce(()-> driveSub.setPose(new Pose2d(driveSub.getPose().getX(),driveSub.getPose().getY(),new Rotation2d())))); 
 
@@ -199,10 +232,12 @@ driveSub.setDefaultCommand(DriveCommands.joystickDrive(
     
   }
 
+  private boolean shouldSwitchSuperstructure() {
+    return superstructureSwitchRng.nextInt(100) < 81;
+  }
+
   public Command getAutonomousCommand() {
-    return Commands.run(() -> driveSub.runVelocity(new ChassisSpeeds(1, 0, 0)), driveSub)
-        .withTimeout(1.0)
-        .andThen(Commands.runOnce(driveSub::stop, driveSub));
+    return autChooser.get();
   }
 
   public void resetSimOnEnable() {

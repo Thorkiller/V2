@@ -79,6 +79,7 @@ public class Shooter extends SubsystemBase {
     public boolean shooterAtVelocity = false;
     public boolean spindexerWheelAtVelocity = false;
     public double targetVelocity = 0.0;
+    public double targetRPM = 0.0;
     public double shooterAppliedVoltage = 0.0;
     public double spindexerSpinnerAppliedVoltage = 0.0;
     public double spindexerWheelAppliedVoltage = 0.0;
@@ -90,6 +91,7 @@ public class Shooter extends SubsystemBase {
     public boolean spindexerSpinnerMotorConnected = false;
     public boolean spindexerWheelMotorConnected = false;
     public double shooterVelocityMPS = 0;
+    public double shooterRPM = 0;
 
  
   }
@@ -239,6 +241,8 @@ public class Shooter extends SubsystemBase {
     inputs.spindexerWheelAppliedVoltage = spindexerWheelMotor.getMotorVoltage().getValueAsDouble();
     inputs.spindexerSpinnerAppliedVoltage = spindexerSpinnerMotor.getMotorVoltage().getValueAsDouble();
     inputs.shooterVelocityMPS = getLinearVelocity();
+    inputs.targetRPM = targetRPS * 60;
+    inputs.shooterRPM = shooterLeaderMotor.getVelocity().getValueAsDouble() * 60;
     
 
   }

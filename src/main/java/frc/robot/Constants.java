@@ -93,6 +93,9 @@ public final class Constants {
                 new Translation3d(Inches.of(181.56), FIELD_WIDTH.div(2), Inches.of(56.4));
         public static final Translation3d HUB_RED =
                 new Translation3d(FIELD_LENGTH.minus(Inches.of(181.56)), FIELD_WIDTH.div(2), Inches.of(56.4));
+        public static final Translation2d Bluefunnel = new Translation2d(1.277,0.620);
+                public static final Translation2d Redfunnel = new Translation2d(1.277,0.620);
+
         public static final Distance FUNNEL_RADIUS = Inches.of(24);
         public static final Distance FUNNEL_HEIGHT = Inches.of(72 - 56.4);
     }
