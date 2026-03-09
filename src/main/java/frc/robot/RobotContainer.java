@@ -251,8 +251,54 @@ driveSub.setDefaultCommand(DriveCommands.joystickDrive(
     return superstructureSwitchRng.nextInt(100) < 81;
   }
 
-  public Command getAutonomousCommand() {
-    return autChooser.get();
+public Command getAutonomousCommand() {
+    return Commands.sequence(
+        Commands.runEnd(
+                () -> driveSub.runVelocity(new ChassisSpeeds(0.5, 0.0, 0.0)),
+                driveSub::stop,
+                driveSub)
+            .withTimeout(0.7),
+            
+        DriveCommands.joystickDriveAtAngle(
+                driveSub, () -> 0.0, () -> 0.0, () -> superstructure.getHubHeading())
+            .withTimeout(2),
+        Commands.runEnd(
+                () -> superstructure.requestShootingPRE(),
+                () -> superstructure.setDriving(),
+                superstructure)
+            .withTimeout(3),
+
+            Commands.runOnce(()-> superstructure.setDriving()),
+
+
+        DriveCommands.joystickDriveAtAngle(
+                driveSub, () -> 0.0, () -> 0, () -> Rotation2d.fromDegrees(360))
+            .withTimeout(0.5),
+
+        Commands.runEnd(
+                () -> driveSub.runVelocity(new ChassisSpeeds(0.3, 0.15, 0.0)),
+                driveSub::stop,
+                driveSub)
+            .withTimeout(5),
+            
+       Commands.runEnd(
+                () -> driveSub.runVelocity(new ChassisSpeeds(-0.4, -0.2, 0.0)),
+                driveSub::stop,
+                driveSub)
+            .withTimeout(0.8),      
+
+
+        DriveCommands.joystickDriveAtAngle(
+                driveSub, () -> 0.0, () -> 0.0, () -> superstructure.getHubHeading())
+            .withTimeout(2),
+        Commands.runEnd(
+                () -> superstructure.requestShootingPRE(),
+                () -> superstructure.setDriving(),
+                superstructure)
+            .withTimeout(4),
+        Commands.runOnce(driveSub::stop));
+
+
   }
 
   public void resetSimOnEnable() {

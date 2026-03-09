@@ -22,8 +22,11 @@ import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
+import edu.wpi.first.networktables.BooleanPublisher;
+import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.subsystems.vision.VisionIO.PoseObservationType;
 import java.util.LinkedList;
@@ -35,6 +38,10 @@ public class Vision extends SubsystemBase {
     private final VisionIO[] io;
     private final VisionIOInputsAutoLogged[] inputs;
     private final Alert[] disconnectedAlerts;
+    private final BooleanPublisher hasTargetPublisher =
+            NetworkTableInstance.getDefault().getBooleanTopic("/Vision/HasTarget").publish();
+    private static final double kLogPeriodSeconds = 0.1;
+    private double lastLogTimeSeconds = 0.0;
 
     public Vision(VisionConsumer consumer, VisionIO... io) {
         this.consumer = consumer;
@@ -65,10 +72,19 @@ public class Vision extends SubsystemBase {
 
     @Override
     public void periodic() {
+        double nowSeconds = Timer.getFPGATimestamp();
+        boolean shouldLog = nowSeconds - lastLogTimeSeconds >= kLogPeriodSeconds;
+        boolean anyHasTarget = false;
         for (int i = 0; i < io.length; i++) {
             io[i].updateInputs(inputs[i]);
-            Logger.processInputs("Vision/Camera" + Integer.toString(i), inputs[i]);
+            if (shouldLog) {
+                Logger.processInputs("Vision/Camera" + Integer.toString(i), inputs[i]);
+            }
+            if (inputs[i].tagIds.length > 0 || inputs[i].poseObservations.length > 0) {
+                anyHasTarget = true;
+            }
         }
+        hasTargetPublisher.set(anyHasTarget);
 
         // Initialize logging values
         List<Pose3d> allTagPoses = new LinkedList<>();
@@ -109,11 +125,11 @@ public class Vision extends SubsystemBase {
                         || observation.pose().getY() < 0.0
                         || observation.pose().getY() > aprilTagLayout.getFieldWidth();
 
-                // Add pose to log
-                robotPoses.add(observation.pose());
-                if (rejectPose) {
-                    robotPosesRejected.add(observation.pose());
-                } else {
+            // Add pose to log
+            robotPoses.add(observation.pose());
+            if (rejectPose) {
+                robotPosesRejected.add(observation.pose());
+            } else {
                     robotPosesAccepted.add(observation.pose());
                 }
 
@@ -142,34 +158,39 @@ public class Vision extends SubsystemBase {
                         VecBuilder.fill(linearStdDev, linearStdDev, angularStdDev));
             }
 
-            // Log camera datadata
-            Logger.recordOutput(
-                    "Vision/Camera" + Integer.toString(cameraIndex) + "/TagPoses",
-                    tagPoses.toArray(new Pose3d[tagPoses.size()]));
-            Logger.recordOutput(
-                    "Vision/Camera" + Integer.toString(cameraIndex) + "/RobotPoses",
-                    robotPoses.toArray(new Pose3d[robotPoses.size()]));
-            Logger.recordOutput(
-                    "Vision/Camera" + Integer.toString(cameraIndex) + "/RobotPosesAccepted",
-                    robotPosesAccepted.toArray(new Pose3d[robotPosesAccepted.size()]));
-            Logger.recordOutput(
-                    "Vision/Camera" + Integer.toString(cameraIndex) + "/RobotPosesRejected",
-                    robotPosesRejected.toArray(new Pose3d[robotPosesRejected.size()]));
-            allTagPoses.addAll(tagPoses);
-            allRobotPoses.addAll(robotPoses);
-            allRobotPosesAccepted.addAll(robotPosesAccepted);
-            allRobotPosesRejected.addAll(robotPosesRejected);
+            if (shouldLog) {
+                // Log camera data
+                Logger.recordOutput(
+                        "Vision/Camera" + Integer.toString(cameraIndex) + "/TagPoses",
+                        tagPoses.toArray(new Pose3d[tagPoses.size()]));
+                Logger.recordOutput(
+                        "Vision/Camera" + Integer.toString(cameraIndex) + "/RobotPoses",
+                        robotPoses.toArray(new Pose3d[robotPoses.size()]));
+                Logger.recordOutput(
+                        "Vision/Camera" + Integer.toString(cameraIndex) + "/RobotPosesAccepted",
+                        robotPosesAccepted.toArray(new Pose3d[robotPosesAccepted.size()]));
+                Logger.recordOutput(
+                        "Vision/Camera" + Integer.toString(cameraIndex) + "/RobotPosesRejected",
+                        robotPosesRejected.toArray(new Pose3d[robotPosesRejected.size()]));
+                allTagPoses.addAll(tagPoses);
+                allRobotPoses.addAll(robotPoses);
+                allRobotPosesAccepted.addAll(robotPosesAccepted);
+                allRobotPosesRejected.addAll(robotPosesRejected);
+            }
         }
 
-        // Log summary data
-        Logger.recordOutput("Vision/Summary/TagPoses", allTagPoses.toArray(new Pose3d[allTagPoses.size()]));
-        Logger.recordOutput("Vision/Summary/RobotPoses", allRobotPoses.toArray(new Pose3d[allRobotPoses.size()]));
-        Logger.recordOutput(
-                "Vision/Summary/RobotPosesAccepted",
-                allRobotPosesAccepted.toArray(new Pose3d[allRobotPosesAccepted.size()]));
-        Logger.recordOutput(
-                "Vision/Summary/RobotPosesRejected",
-                allRobotPosesRejected.toArray(new Pose3d[allRobotPosesRejected.size()]));
+        if (shouldLog) {
+            // Log summary data
+            Logger.recordOutput("Vision/Summary/TagPoses", allTagPoses.toArray(new Pose3d[allTagPoses.size()]));
+            Logger.recordOutput("Vision/Summary/RobotPoses", allRobotPoses.toArray(new Pose3d[allRobotPoses.size()]));
+            Logger.recordOutput(
+                    "Vision/Summary/RobotPosesAccepted",
+                    allRobotPosesAccepted.toArray(new Pose3d[allRobotPosesAccepted.size()]));
+            Logger.recordOutput(
+                    "Vision/Summary/RobotPosesRejected",
+                    allRobotPosesRejected.toArray(new Pose3d[allRobotPosesRejected.size()]));
+            lastLogTimeSeconds = nowSeconds;
+        }
     }
 
     @FunctionalInterface

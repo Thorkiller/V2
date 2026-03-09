@@ -62,12 +62,13 @@ public class Intake extends SubsystemBase{
     TalonFXConfiguration talonFXConfigs = new TalonFXConfiguration();
 
     private static final double kSimDtSeconds = 0.02;
-    private static final double kIntakePositionRotations = 17.3;
+    private static final double kIntakePositionRotations = 21;
     private static final double kHomePositionRotations = 0.0;
     private static final double kIntakeVoltage = 9;
     private static final double kHomingVoltage = -3;
-    private static final double kPositionToleranceRotations = 1.0;
-    private static final double kIntakeP = 0.5;
+    private static final double kReverseWheelsVoltage = -5.0;
+    private static final double kPositionToleranceRotations = 0.3;
+    private static final double kIntakeP = 0.8;
     private static final double kIntakeI = 0.0;
     private static final double kIntakeD = 0.0;
     private static final double kMaxIntakePidVoltage = 8.0;
@@ -78,6 +79,8 @@ public class Intake extends SubsystemBase{
     private static final double kIntakeGearRatio = 10.0;
     private static final double kIntakeDrumRadiusMeters = 0.02;
     private static final double kIntakeMassKg = 2.0;
+    private static final double kIntakeStopVelocityRps = 0.05;
+    private static final double kIntakeStopDelaySeconds = 3.0;
     private static final double kIntakeMetersPerRotation =
         (2.0 * Math.PI * kIntakeDrumRadiusMeters) / kIntakeGearRatio;
     private static final double kIntakeMaxMeters = kIntakePositionRotations * kIntakeMetersPerRotation;
@@ -91,17 +94,19 @@ public class Intake extends SubsystemBase{
         new PIDController(kIntakeP, kIntakeI, kIntakeD);
 
     public IntakeInputsAutoLogged inputs = new IntakeInputsAutoLogged();    
-     public enum WantedState {
+    public enum WantedState {
         IDLE,
         INTAKE,
         HOME,
-        SHOOT
+        SHOOT,
+        REVERSE
     }
     public enum CurrentState {
         IDLE,
         INTAKE,
         HOME,
-        SHOOT
+        SHOOT,
+        REVERSE
     }
 
     public WantedState wantedState = WantedState.IDLE;
@@ -109,6 +114,8 @@ public class Intake extends SubsystemBase{
     private CurrentState lastState = CurrentState.IDLE;
     private boolean shootPulseIn = true;
     private double shootPulseToggleTimestamp = 0.0;
+    private boolean intakeAtRestStop = false;
+    private double intakeAtRestTimestamp = -1.0;
 
     public Intake() {
         
@@ -218,6 +225,9 @@ public class Intake extends SubsystemBase{
                 case SHOOT:
                 currentState = CurrentState.SHOOT;
                 break;
+            case REVERSE:
+                currentState = CurrentState.REVERSE;
+                break;
         }
 
     }
@@ -228,12 +238,32 @@ public class Intake extends SubsystemBase{
                 intakeMotor.setVoltage(0);
                 intakeWheels.setVoltage(0);
                 intakePid.reset();
+                intakeAtRestStop = false;
+                intakeAtRestTimestamp = -1.0;
 
                 
                 break;
             case INTAKE:
                 double pos = intakeMotor.getPosition().getValueAsDouble();
-                if (Math.abs(pos - kIntakePositionRotations) <= kPositionToleranceRotations) {
+                double velRps = intakeMotor.getVelocity().getValueAsDouble();
+                boolean atSetpoint = Math.abs(pos - kIntakePositionRotations) <= kPositionToleranceRotations;
+                boolean stalled = Math.abs(velRps) <= kIntakeStopVelocityRps;
+                if (!atSetpoint) {
+                    intakeAtRestStop = false;
+                    intakeAtRestTimestamp = -1.0;
+                } else if (stalled) {
+                    if (intakeAtRestTimestamp < 0.0) {
+                        intakeAtRestTimestamp = Timer.getFPGATimestamp();
+                    }
+                    if (Timer.getFPGATimestamp() - intakeAtRestTimestamp >= kIntakeStopDelaySeconds) {
+                        intakeAtRestStop = true;
+                    }
+                } else {
+                    intakeAtRestStop = false;
+                    intakeAtRestTimestamp = -1.0;
+                }
+
+                if (atSetpoint && intakeAtRestStop) {
                     intakeMotor.setVoltage(0);
                     intakePid.reset();
                 } else {
@@ -252,6 +282,8 @@ public class Intake extends SubsystemBase{
                 homeOutput = Math.max(-kMaxIntakePidVoltage, Math.min(kMaxIntakePidVoltage, homeOutput));
                 intakeMotor.setVoltage(homeOutput);
                 intakeWheels.setVoltage(0);
+                intakeAtRestStop = false;
+                intakeAtRestTimestamp = -1.0;
 
                 break;
             case SHOOT:
@@ -273,6 +305,15 @@ public class Intake extends SubsystemBase{
                     intakeMotor.setVoltage(shootPulseIn ? kHomingVoltage : kShootPulseOutVoltage);
                 }
                 intakeWheels.setVoltage(-4);
+                intakeAtRestStop = false;
+                intakeAtRestTimestamp = -1.0;
+                break;
+            case REVERSE:
+                intakeMotor.setVoltage(0);
+                intakeWheels.setVoltage(kReverseWheelsVoltage);
+                intakePid.reset();
+                intakeAtRestStop = false;
+                intakeAtRestTimestamp = -1.0;
                 break;
         }
     }
@@ -289,6 +330,9 @@ public class Intake extends SubsystemBase{
     }
       public void shoot() {
         wantedState = WantedState.SHOOT;
+    }
+    public void reverseRollers() {
+        wantedState = WantedState.REVERSE;
     }
 
 

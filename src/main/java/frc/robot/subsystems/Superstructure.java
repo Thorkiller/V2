@@ -58,7 +58,8 @@ public class Superstructure extends SubsystemBase{
     SHOOTING,
     REVUP,
     PRE_SHOOT,
-    FUNNLING
+    FUNNLING,
+    REVERSE_INTAKE
 
   }
   public enum SuperstructureCurrentState {
@@ -69,7 +70,8 @@ public class Superstructure extends SubsystemBase{
     SHOOTING,
     REVUP,
     PRE_SHOOT,
-    FUNNLING 
+    FUNNLING,
+    REVERSE_INTAKE
   }
     public Drive drive;
     public Shooter shooter;
@@ -168,7 +170,6 @@ public class Superstructure extends SubsystemBase{
     private boolean dashboardFunnling = false;
     private boolean dashboardManual = false;
     private boolean dashboardConfirm = false;
-    private long lastDashboardSetpointChange = 0;
 
     private final SwerveRequest.RobotCentric intakeRequest =
         new SwerveRequest.RobotCentric().withDeadband(0.0).withRotationalDeadband(0.0);
@@ -255,16 +256,17 @@ public class Superstructure extends SubsystemBase{
     }
 
     private void updateDashboardControls() {
-        long shooterChange = shooterTargetRpmSub.getLastChange();
-        long boostChange = shooterBoostRpmSub.getLastChange();
-        long latestChange = Math.max(shooterChange, boostChange);
-        if (latestChange > lastDashboardSetpointChange) {
-            lastDashboardSetpointChange = latestChange;
-            dashboardShooterRpm = shooterTargetRpmSub.get();
-            dashboardShooterBoostRpm = shooterBoostRpmSub.get();
-                wantedState = SuperstructureWantedState.DASHBOARD;
-            
+        double shooterRpm = shooterTargetRpmSub.get();
+        for (var sample : shooterTargetRpmSub.readQueue()) {
+            shooterRpm = sample.value;
         }
+        dashboardShooterRpm = shooterRpm;
+
+        double boostRpm = shooterBoostRpmSub.get();
+        for (var sample : shooterBoostRpmSub.readQueue()) {
+            boostRpm = sample.value;
+        }
+        dashboardShooterBoostRpm = boostRpm;
 
         boolean hoodIn = hoodInSub.get();
         for (var sample : hoodInSub.readQueue()) {
@@ -370,6 +372,9 @@ public class Superstructure extends SubsystemBase{
             case FUNNLING:
             currentState = SuperstructureCurrentState.FUNNLING;
             break;
+            case REVERSE_INTAKE:
+            currentState = SuperstructureCurrentState.REVERSE_INTAKE;
+            break;
         }
     }
 
@@ -461,17 +466,43 @@ public class Superstructure extends SubsystemBase{
                  double disntance = 0;
         if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red) {
             disntance = drive.getPose().getTranslation().getDistance(Constants.FieldConstants.HUB_RED.toTranslation2d());
-
-        }
-        else{
-             disntance = drive.getPose().getTranslation().getDistance(Constants.FieldConstants.HUB_RED.toTranslation2d());
-
-
+        } else {
+            disntance = drive.getPose().getTranslation().getDistance(Constants.FieldConstants.HUB_BLUE.toTranslation2d());
         }
 
         double boostedShooterVelocity = 0.0;
+        boolean useBluePhysicsModel = false;
         if (dashboardManual) {
-            boostedShooterVelocity = 16.0;
+            boostedShooterVelocity = 40;
+        } else if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Blue && useBluePhysicsModel) {
+            double targetHeightMeters = Constants.FieldConstants.HUB_BLUE.getZ();
+            double robotSpeedTowardHub = getRobotSpeedTowardHubMetersPerSecond();
+            double shotExitHeightMeters = Units.inchesToMeters(15.5);
+            double maxHoodDeg = 35.0;
+            double maxHoodRotations = 5.7;
+            HubShotSolver.Result blueTarget =
+                HubShotSolver.bestShotWithRobotSpeed(
+                    disntance,
+                    targetHeightMeters,
+                    shotExitHeightMeters,
+                    robotSpeedTowardHub,
+                    kShotSolveMinAngleDeg,
+                    maxHoodDeg,
+                    kShotSolveStepDeg,
+                    kShotSolveMaxVelocityMps);
+            if (blueTarget == null) {
+                hood.setIdle();
+                shooter.setOff();
+                break;
+            }
+            double hoodRotations = blueTarget.angleDeg * (maxHoodRotations / maxHoodDeg);
+            hood.moveToAngle(hoodRotations);
+            double shooterAngularVelocityRadPerSec =
+                blueTarget.velocityMps / Units.inchesToMeters(2);
+            double shooterFinalRPM =
+                shooterAngularVelocityRadPerSec * (60.0 / (2.0 * Math.PI));
+            boostedShooterVelocity =
+                (shooterFinalRPM / 60.0) + (dashboardShooterBoostRpm * kRpmToRps);
         } else {
             LookUpTable.LookUpTableTest lookUpTableTest = new LookUpTable().LookUpTableOutput(disntance);
             double shooterFinalRPM = lookUpTableTest.getRPS();
@@ -482,10 +513,15 @@ public class Superstructure extends SubsystemBase{
         dashboardConfirm = true;
         if (dashboardConfirm) {
             if (dashboardManual) {
-                hood.moveToAngle(3);
+                hood.moveToAngle(0.7);
+            } else if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Blue && useBluePhysicsModel) {
+                // Hood target already set from the blue physics model above.
             } else {
                 LookUpTable.LookUpTableTest lookUpTableTest = new LookUpTable().LookUpTableOutput(disntance);
                 double hooddeg = lookUpTableTest.getAngle();
+                if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Blue) {
+                    hooddeg -= 0.419;
+                }
                 hood.moveToAngle(hooddeg);
             }
             if (drive.getChassisSpeeds().omegaRadiansPerSecond < 2.5) {
@@ -541,6 +577,9 @@ public class Superstructure extends SubsystemBase{
             intake.goHome();
         }
         break;
+        case REVERSE_INTAKE:
+        intake.reverseRollers();
+        break;
 
         }
 
@@ -570,12 +609,10 @@ public class Superstructure extends SubsystemBase{
         double disntance = 0;
         if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red) {
             disntance = drive.getPose().getTranslation().getDistance(Constants.FieldConstants.HUB_RED.toTranslation2d());
-
-        }
-        else{
-             disntance = drive.getPose().getTranslation().getDistance(Constants.FieldConstants.HUB_RED.toTranslation2d());
-
-
+        } else {
+            disntance =
+                drive.getPose().getTranslation().getDistance(Constants.FieldConstants.HUB_BLUE.toTranslation2d())
+                  ;
         }
         double targetHeightMeters = Constants.FieldConstants.HUB_BLUE.getZ();
         double robotSpeedTowardHub = getRobotSpeedTowardHubMetersPerSecond();
@@ -589,7 +626,7 @@ public class Superstructure extends SubsystemBase{
                 disntance,
                 targetHeightMeters,
                 kShotExitHeightMeters,
-                robotSpeedTowardHub,
+                0,
                 kShotSolveMinAngleDeg,
                 kShotSolveMaxAngleDeg,
                 kShotSolveStepDeg,
@@ -613,6 +650,9 @@ public class Superstructure extends SubsystemBase{
                lookUpTableTest = new LookUpTable().LookUpTableOutput(disntance);
             shooterFinalRPM = lookUpTableTest.getRPS();
             hooddeg = lookUpTableTest.getAngle();
+            if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Blue) {
+                hooddeg -= 0.419;
+            }
         }
 
         
@@ -640,6 +680,9 @@ public class Superstructure extends SubsystemBase{
 
     public void requestIntake() {
         wantedState = SuperstructureWantedState.INTAKING;
+    }
+    public void requestReverseIntake() {
+        wantedState = SuperstructureWantedState.REVERSE_INTAKE;
     }
 
     public void requestShooting() {
@@ -759,14 +802,21 @@ public class Superstructure extends SubsystemBase{
             robotPose.getTranslation().getDistance(Constants.FieldConstants.HUB_BLUE.toTranslation2d());
         double targetHeightMeters = Constants.FieldConstants.HUB_BLUE.getZ();
         double robotSpeedTowardHub = getRobotSpeedTowardHubMetersPerSecond();
+        double shotExitHeightMeters = kShotExitHeightMeters;
+        double maxAngleDeg = kShotSolveMaxAngleDeg;
+        boolean useBluePhysicsModel = false;
+        if (DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Blue && useBluePhysicsModel) {
+            shotExitHeightMeters = Units.inchesToMeters(15.5);
+            maxAngleDeg = 35.0;
+        }
         HubShotSolver.Result solution =
             HubShotSolver.bestShotWithRobotSpeed(
                 distanceMeters,
                 targetHeightMeters,
-                kShotExitHeightMeters,
+                shotExitHeightMeters,
                 robotSpeedTowardHub,
                 kShotSolveMinAngleDeg,
-                kShotSolveMaxAngleDeg,
+                maxAngleDeg,
                 kShotSolveStepDeg,
                 kShotSolveMaxVelocityMps);
         if (solution == null) {
