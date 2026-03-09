@@ -259,7 +259,7 @@ driveSub.setDefaultCommand(DriveCommands.joystickDrive(
     if (!RobotBase.isSimulation()) {
       return;
     }
-    driveSub.setPose(new Pose2d(3, 3, new Rotation2d()));
+    driveSub.setPose(new Pose2d(3.001, 3, new Rotation2d()));
   }
 
   private void spawnFuelCluster(int count) {
