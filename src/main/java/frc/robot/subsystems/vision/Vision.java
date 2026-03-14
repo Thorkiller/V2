@@ -29,6 +29,7 @@ import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.subsystems.vision.VisionIO.PoseObservationType;
+import frc.robot.subsystems.vision.VisionIO.TargetObservation;
 import java.util.LinkedList;
 import java.util.List;
 import org.littletonrobotics.junction.Logger;
@@ -70,6 +71,25 @@ public class Vision extends SubsystemBase {
         return inputs[cameraIndex].latestTargetObservation.tx();
     }
 
+    public TargetObservation[] getTargetObservations(int cameraIndex) {
+        if (cameraIndex < 0 || cameraIndex >= inputs.length) {
+            return new TargetObservation[0];
+        }
+        return inputs[cameraIndex].targetObservations;
+    }
+
+    public boolean hasTarget(int cameraIndex) {
+        if (cameraIndex < 0 || cameraIndex >= inputs.length) {
+            return false;
+        }
+        var cameraInputs = inputs[cameraIndex];
+        return cameraInputs.targetObservations.length > 0
+                || cameraInputs.tagIds.length > 0
+                || cameraInputs.poseObservations.length > 0
+                || Math.abs(cameraInputs.latestTargetObservation.tx().getRadians()) > 1e-6
+                || Math.abs(cameraInputs.latestTargetObservation.ty().getRadians()) > 1e-6;
+    }
+
     @Override
     public void periodic() {
         double nowSeconds = Timer.getFPGATimestamp();
@@ -80,7 +100,9 @@ public class Vision extends SubsystemBase {
             if (shouldLog) {
                 Logger.processInputs("Vision/Camera" + Integer.toString(i), inputs[i]);
             }
-            if (inputs[i].tagIds.length > 0 || inputs[i].poseObservations.length > 0) {
+            if (inputs[i].targetObservations.length > 0
+                    || inputs[i].tagIds.length > 0
+                    || inputs[i].poseObservations.length > 0) {
                 anyHasTarget = true;
             }
         }
@@ -198,3 +220,6 @@ public class Vision extends SubsystemBase {
         void accept(Pose2d visionRobotPoseMeters, double timestampSeconds, Matrix<N3, N1> visionMeasurementStdDevs);
     }
 }
+
+
+

@@ -21,6 +21,7 @@ import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.auto.NamedCommands;
 
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Rotation3d;
@@ -30,11 +31,15 @@ import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.LinearVelocity;
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.RobotBase;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 
+import java.util.Arrays;
+import java.util.OptionalDouble;
 import java.util.Random;
 
 import frc.robot.commands.DriveCommands;
@@ -55,6 +60,7 @@ import frc.robot.subsystems.vision.VisionIOPhotonVision;
 import frc.robot.subsystems.vision.VisionIOPhotonVisionSim;
 import frc.robot.util.TunableController;
 import frc.robot.subsystems.vision.VisionIO;
+import frc.robot.subsystems.vision.VisionIO.TargetObservation;
 
 
 public class RobotContainer {
@@ -92,6 +98,10 @@ Transform3d robotToRightCam = new Transform3d(
                     private double MaxAngularRatealighn = RotationsPerSecond.of(10).in(RadiansPerSecond); // 3/4 of a rotation per second max angular velocity
 
     private double MaxSpeed = 1.0 * TunerConstants.kSpeedAt12Volts.in(MetersPerSecond); // kSpeedAt12Volts desired top speed
+    private static final double kDriveDeadband = 0.1;
+    private static final double kIntakeAssistVisionDistanceMeters = 1.3;
+    private static final int kIntakeAssistCameraIndex = 0;
+    private static final double kIntakeAssistClusterYawWindowRad = Units.degreesToRadians(7.0);
     private final Superstructure superstructure;
     private final Random superstructureSwitchRng = new Random();
 
@@ -179,6 +189,12 @@ Transform3d robotToRightCam = new Transform3d(
         .alongWith(Commands.run(() -> superstructure.requestShootingPRE()))
 );
 
+NamedCommands.registerCommand(
+    "intake",
+(Commands.run(() -> superstructure.requestIntake()))
+);
+
+
       autChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
       autChooser.addOption(
           "Drive Wheel Radius Characterization", DriveCommands.wheelRadiusCharacterization(driveSub));
@@ -198,8 +214,9 @@ Transform3d robotToRightCam = new Transform3d(
 
     
 
-driveSub.setDefaultCommand(DriveCommands.joystickDrive(
-                driveSub, () -> -joystick.getLeftY(), () -> -joystick.getLeftX(), () -> -joystick.getRightX()));
+driveSub.setDefaultCommand(Commands.run(
+                () -> driveSub.runVelocity(getAssistedTeleopSpeeds()),
+                driveSub));
 
                 joystick.rightTrigger(0.2).whileTrue(DriveCommands.joystickDriveAtAngle(driveSub, ()-> 0, ()-> 0,()-> (superstructure.getHubHeading())));
 
@@ -207,7 +224,7 @@ driveSub.setDefaultCommand(DriveCommands.joystickDrive(
             joystick.leftTrigger(0.2).onTrue(Commands.runOnce(() -> {
                 superstructure.requestIntake();
               
-            }));
+            })).onFalse(superstructure.setDriving());
             joystick.rightTrigger(0.2)
                 
                 .onTrue(Commands.sequence(
@@ -245,6 +262,84 @@ driveSub.setDefaultCommand(DriveCommands.joystickDrive(
 
     
     
+  }
+
+  private Translation2d getLinearVelocityFromJoysticks(double x, double y) {
+    double linearMagnitude = MathUtil.applyDeadband(Math.hypot(x, y), kDriveDeadband);
+    Rotation2d linearDirection = new Rotation2d(Math.atan2(y, x));
+    linearMagnitude = linearMagnitude * linearMagnitude;
+    return new Pose2d(new Translation2d(), linearDirection)
+        .transformBy(new edu.wpi.first.math.geometry.Transform2d(linearMagnitude, 0.0, new Rotation2d()))
+        .getTranslation();
+  }
+
+  private ChassisSpeeds getAssistedTeleopSpeeds() {
+    Translation2d linearVelocity = getLinearVelocityFromJoysticks(-joystick.getLeftY(), -joystick.getLeftX());
+    double omega = MathUtil.applyDeadband(-joystick.getRightX(), kDriveDeadband);
+    omega = Math.copySign(omega * omega, omega);
+
+    ChassisSpeeds driverFieldSpeeds = new ChassisSpeeds(
+        linearVelocity.getX() * driveSub.getMaxLinearSpeedMetersPerSec(),
+        linearVelocity.getY() * driveSub.getMaxLinearSpeedMetersPerSec(),
+        omega * driveSub.getMaxAngularSpeedRadPerSec());
+
+    OptionalDouble clusterYawRadians = getBestClusterYawRadians(visionpose.getTargetObservations(kIntakeAssistCameraIndex));
+    boolean hasVisionTarget = clusterYawRadians.isPresent();
+    double visionLateralErrorMeters = hasVisionTarget
+        ? Math.tan(clusterYawRadians.getAsDouble()) * kIntakeAssistVisionDistanceMeters
+        : 0.0;
+
+    ChassisSpeeds assistedFieldSpeeds = superstructure.applyIntakeAssist(
+        driverFieldSpeeds,
+        visionLateralErrorMeters,
+        hasVisionTarget);
+
+    boolean isFlipped = DriverStation.getAlliance().isPresent()
+        && DriverStation.getAlliance().get() == Alliance.Red;
+    return ChassisSpeeds.fromFieldRelativeSpeeds(
+        assistedFieldSpeeds,
+        isFlipped ? driveSub.getRotation().plus(new Rotation2d(Math.PI)) : driveSub.getRotation());
+  }
+
+  private OptionalDouble getBestClusterYawRadians(TargetObservation[] observations) {
+    if (observations == null || observations.length == 0) {
+      return OptionalDouble.empty();
+    }
+
+    double[] yaws = Arrays.stream(observations)
+        .mapToDouble(observation -> observation.tx().getRadians())
+        .sorted()
+        .toArray();
+
+    int bestStart = 0;
+    int bestEnd = 0;
+    int start = 0;
+    double bestScore = Double.NEGATIVE_INFINITY;
+
+    for (int end = 0; end < yaws.length; end++) {
+      while (start <= end && (yaws[end] - yaws[start]) > kIntakeAssistClusterYawWindowRad) {
+        start++;
+      }
+
+      int count = end - start + 1;
+      double sumYaw = 0.0;
+      for (int i = start; i <= end; i++) {
+        sumYaw += yaws[i];
+      }
+      double centerYaw = sumYaw / count;
+      double score = (count * 100.0) - Math.abs(centerYaw);
+      if (score > bestScore) {
+        bestScore = score;
+        bestStart = start;
+        bestEnd = end;
+      }
+    }
+
+    double bestSumYaw = 0.0;
+    for (int i = bestStart; i <= bestEnd; i++) {
+      bestSumYaw += yaws[i];
+    }
+    return OptionalDouble.of(bestSumYaw / (bestEnd - bestStart + 1));
   }
 
   private boolean shouldSwitchSuperstructure() {
@@ -343,3 +438,7 @@ public Command getAutonomousCommand() {
     }
 
 }
+
+
+
+
