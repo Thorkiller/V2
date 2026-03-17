@@ -30,18 +30,15 @@ import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.util.Units;
-import edu.wpi.first.units.measure.LinearVelocity;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
-
 import java.util.Arrays;
 import java.util.OptionalDouble;
 import java.util.Random;
-
 import frc.robot.commands.DriveCommands;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.Superstructure;
@@ -61,8 +58,6 @@ import frc.robot.subsystems.vision.VisionIOPhotonVisionSim;
 import frc.robot.util.TunableController;
 import frc.robot.subsystems.vision.VisionIO;
 import frc.robot.subsystems.vision.VisionIO.TargetObservation;
-
-
 public class RobotContainer {
 
   PhotonCamera leftCam = new PhotonCamera("LeftCam");
@@ -185,15 +180,30 @@ Transform3d robotToRightCam = new Transform3d(
     }
   NamedCommands.registerCommand(
     "shoot",
-    DriveCommands.joystickDriveAtAngle(driveSub, () -> 0, () -> 0, superstructure::getHubHeading)
-        .alongWith(Commands.run(() -> superstructure.requestShootingPRE()))
+    Commands.sequence(
+        superstructure.goIn(true),
+        superstructure.setShooting(),
+        DriveCommands.joystickDriveAtAngle(
+                driveSub,
+                () -> 0,
+                () -> 0,
+                superstructure::getHubHeading)
+            .withTimeout(10),
+        superstructure.goIn(false),
+        superstructure.setDriving()));
+  NamedCommands.registerCommand(
+    "accshoot",
+   superstructure.setShooting()
 );
 
 NamedCommands.registerCommand(
     "intake",
-(Commands.run(() -> superstructure.requestIntake()))
+    superstructure.setIntake()
 );
-
+NamedCommands.registerCommand(
+    "drive",
+    superstructure.setDriving()
+);
 
       autChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
       autChooser.addOption(
@@ -218,7 +228,7 @@ driveSub.setDefaultCommand(Commands.run(
                 () -> driveSub.runVelocity(getAssistedTeleopSpeeds()),
                 driveSub));
 
-                joystick.rightTrigger(0.2).whileTrue(DriveCommands.joystickDriveAtAngle(driveSub, ()-> 0, ()-> 0,()-> (superstructure.getHubHeading())));
+                joystick.rightTrigger(0.2).whileTrue(DriveCommands.joystickDriveAtAngle(driveSub, ()-> -joystick.getLeftY(), ()-> -joystick.getLeftX(),()-> (superstructure.getHubHeading())));
 
 
             joystick.leftTrigger(0.2).onTrue(Commands.runOnce(() -> {
@@ -230,7 +240,7 @@ driveSub.setDefaultCommand(Commands.run(
                 .onTrue(Commands.sequence(
                     Commands.runOnce(() -> {
                      
-                        superstructure.requestShootingPRE();
+                        superstructure.requestShooting();
                       
                     }))).onFalse(superstructure.setDriving());
                     
@@ -256,6 +266,8 @@ driveSub.setDefaultCommand(Commands.run(
                 superstructure.wantedState = Superstructure.SuperstructureWantedState.DRIVING;
               }
             }));
+
+            joystick.b().onTrue(superstructure.toggleShootOnMoveCommand());
 
             joystick.x().whileTrue(Commands.runOnce(()-> driveSub.setPose(new Pose2d(driveSub.getPose().getX(),driveSub.getPose().getY(),new Rotation2d())))); 
 
@@ -347,52 +359,7 @@ driveSub.setDefaultCommand(Commands.run(
   }
 
 public Command getAutonomousCommand() {
-    return Commands.sequence(
-        Commands.runEnd(
-                () -> driveSub.runVelocity(new ChassisSpeeds(0.5, 0.0, 0.0)),
-                driveSub::stop,
-                driveSub)
-            .withTimeout(0.7),
-            
-        DriveCommands.joystickDriveAtAngle(
-                driveSub, () -> 0.0, () -> 0.0, () -> superstructure.getHubHeading())
-            .withTimeout(2),
-        Commands.runEnd(
-                () -> superstructure.requestShootingPRE(),
-                () -> superstructure.setDriving(),
-                superstructure)
-            .withTimeout(3),
-
-            Commands.runOnce(()-> superstructure.setDriving()),
-
-
-        DriveCommands.joystickDriveAtAngle(
-                driveSub, () -> 0.0, () -> 0, () -> Rotation2d.fromDegrees(360))
-            .withTimeout(0.5),
-
-        Commands.runEnd(
-                () -> driveSub.runVelocity(new ChassisSpeeds(0.3, 0.15, 0.0)),
-                driveSub::stop,
-                driveSub)
-            .withTimeout(5),
-            
-       Commands.runEnd(
-                () -> driveSub.runVelocity(new ChassisSpeeds(-0.4, -0.2, 0.0)),
-                driveSub::stop,
-                driveSub)
-            .withTimeout(0.8),      
-
-
-        DriveCommands.joystickDriveAtAngle(
-                driveSub, () -> 0.0, () -> 0.0, () -> superstructure.getHubHeading())
-            .withTimeout(2),
-        Commands.runEnd(
-                () -> superstructure.requestShootingPRE(),
-                () -> superstructure.setDriving(),
-                superstructure)
-            .withTimeout(4),
-        Commands.runOnce(driveSub::stop));
-
+    return autChooser.get();
 
   }
 

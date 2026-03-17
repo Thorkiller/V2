@@ -3,7 +3,6 @@ package frc.robot.subsystems;
 
 import org.littletonrobotics.junction.AutoLog;
 import org.littletonrobotics.junction.Logger;
-import org.littletonrobotics.junction.ConsoleSource.RoboRIO;
 
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -24,22 +23,20 @@ import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import frc.robot.Constants;
-import frc.robot.Robot;
 import frc.robot.subsystems.Hood.Hood;
 import frc.robot.subsystems.Intake.Intake;
 import frc.robot.subsystems.Shooter.Shooter;
 import frc.robot.subsystems.drive.Drive;
 import frc.robot.util.LookUpTable;
+import frc.robot.util.LookUpTablePass;
 
 import static edu.wpi.first.units.Units.Degrees;
 import static edu.wpi.first.units.Units.Meters;
 import static edu.wpi.first.units.Units.MetersPerSecond;
 
-import org.ejml.sparse.csc.decomposition.lu.LuUpLooking_DSCC;
 import org.ironmaple.simulation.SimulatedArena;
 import org.ironmaple.simulation.seasonspecific.rebuilt2026.RebuiltFuelOnFly;
 
-import java.util.Optional;
 
 public class Superstructure extends SubsystemBase{
 
@@ -94,6 +91,10 @@ public class Superstructure extends SubsystemBase{
     private static final double kManualShooterSetpointRps = 40.0;
     private static final double kBlueHoodOffsetDeg = 0.419;
     private static final double kShooterWheelRadiusMeters = Units.inchesToMeters(2);
+    private static final double kMovingShotMinSpeedMps = 0.2;
+    private static final double kMovingShotMinLeadTimeSeconds = 0.05;
+    private static final double kMovingShotMaxLeadTimeSeconds = 0.35;
+    private static final double kMovingShotFallbackHorizontalMps = 8.0;
     private static final double kFunnelingMinX = 5.8;
     private static final double kFunnelingMaxX = 10.5;
     private static final double kTrenchHoodDropRadiusMeters = 0.8;
@@ -101,6 +102,10 @@ public class Superstructure extends SubsystemBase{
     private static final Translation2d kBlueTrench2 = new Translation2d(4.622, 0.603);
     private static final Translation2d kRedTrench1 = new Translation2d(11.877, 7.405);
     private static final Translation2d kRedTrench2 = new Translation2d(11.888, 0.675);
+    private static final Translation2d kBluePassPoint1 = new Translation2d(2.0, 0.847);
+    private static final Translation2d kBluePassPoint2 = new Translation2d(2.0, 7.0);
+    private static final Translation2d kRedPassPoint1 = new Translation2d(15.5, 6.850);
+    private static final Translation2d kRedPassPoint2 = new Translation2d(15.166, 0.847);
 
     public boolean in = false;
     public boolean spin = false;
@@ -164,6 +169,14 @@ public class Superstructure extends SubsystemBase{
         NetworkTableInstance.getDefault()
             .getBooleanTopic("/Dashboard/Manual")
             .subscribe(false);
+    private final BooleanSubscriber passingHumanPlayerSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/1771 passing/Human Player")
+            .subscribe(false);
+    private final BooleanSubscriber passingDepotSub =
+        NetworkTableInstance.getDefault()
+            .getBooleanTopic("/1771 passing/Depot")
+            .subscribe(false);
     private double dashboardShooterRpm = 0.0;
     private double dashboardShooterBoostRpm = 0.0;
     private boolean dashboardIntakeIn = false;
@@ -174,6 +187,7 @@ public class Superstructure extends SubsystemBase{
     private boolean dashboardFunnling = false;
     private boolean dashboardManual = false;
     private boolean dashboardConfirm = false;
+    private boolean shootOnMoveEnabled = true;
     private final LookUpTable lookUpTable = new LookUpTable();
 
     private final SwerveRequest.RobotCentric intakeRequest =
@@ -183,6 +197,9 @@ public class Superstructure extends SubsystemBase{
     public String currentState = "IDLE";
     public String wantedState = "IDLE";
     public double targetDistanceMeters = 0.0;
+    public double passingDistanceMeters = 0.0;
+    public String passingTarget = "None";
+    public boolean shootOnMoveEnabled = true;
     }
 
 
@@ -246,11 +263,19 @@ public class Superstructure extends SubsystemBase{
         superstructureInputs.currentState = currentState.toString();
         superstructureInputs.wantedState = wantedState.toString();
          Translation2d hubTarget =
-            DriverStation.getAlliance().orElse(DriverStation.Alliance.Blue) == DriverStation.Alliance.Red
-                ? Constants.FieldConstants.HUB_RED.toTranslation2d()
-                : Constants.FieldConstants.HUB_BLUE.toTranslation2d();
+            currentState == SuperstructureCurrentState.PASSING || isInFunnelingXRange()
+                ? getPassingTarget()
+                : DriverStation.getAlliance().orElse(DriverStation.Alliance.Blue) == DriverStation.Alliance.Red
+                    ? Constants.FieldConstants.HUB_RED.toTranslation2d()
+                    : Constants.FieldConstants.HUB_BLUE.toTranslation2d();
         superstructureInputs.targetDistanceMeters =
             drive.getPose().getTranslation().getDistance(hubTarget);
+        superstructureInputs.passingDistanceMeters = getPassingDistanceMeters();
+        superstructureInputs.passingTarget = getPassingTargetName();
+        superstructureInputs.shootOnMoveEnabled = shootOnMoveEnabled;
+
+        Logger.recordOutput("Passing/DistanceMeters", superstructureInputs.passingDistanceMeters);
+        Logger.recordOutput("Passing/Target", superstructureInputs.passingTarget);
 
     }
 
@@ -340,12 +365,15 @@ public class Superstructure extends SubsystemBase{
                 
                 break;
             case DRIVING:
-            if(ifRevUP()){
-                currentState = SuperstructureCurrentState.REVUP;
-            }
-            else{                
-                currentState = SuperstructureCurrentState.DRIVING;
-                }
+            // if(ifRevUP()){
+            //     currentState = SuperstructureCurrentState.REVUP;
+            // }
+            // else{                
+            //     currentState = SuperstructureCurrentState.DRIVING;
+        //}
+            
+                                currentState = SuperstructureCurrentState.DRIVING;
+
                 break;
             case INTAKING:
                 currentState = SuperstructureCurrentState.INTAKING;
@@ -364,6 +392,7 @@ public class Superstructure extends SubsystemBase{
                     currentState = isInFunnelingXRange()
                         ? SuperstructureCurrentState.PASSING
                         : SuperstructureCurrentState.PRE_SHOOT;
+
                 }
 
 
@@ -383,7 +412,7 @@ public class Superstructure extends SubsystemBase{
     }
 
     private double getRevUpPose(){
-        Alliance alliance = DriverStation.getAlliance().get();
+        Alliance alliance = DriverStation.getAlliance().orElse(Alliance.Blue);
         if(alliance == Alliance.Red){
             return 5.7;
         }
@@ -475,7 +504,7 @@ public class Superstructure extends SubsystemBase{
                 break;
 
             case REVUP:
-            shooter.preShoot(5,false);
+            shooter.preShoot(16.6666666667 ,false);
             hood.setIdle();
          if (dashboardIntakeIn || in) {
             intake.goHome();
@@ -494,15 +523,15 @@ public class Superstructure extends SubsystemBase{
 
         case PASSING:
         dashboardConfirm = true;
+        double passVelocityRps = updatePassSetpointsAndGetShooterVelocityRps();
 
         if (dashboardConfirm) {
-            hood.moveToAngle(4);
             if(shooter.isAtVelocity()){
-                shooter.preShoot(80,true);
+                shooter.preShoot(passVelocityRps, true);
                 intake.shoot();
             }
             else{
-                shooter.preShoot(80, false);
+                shooter.preShoot(passVelocityRps, false);
             }
         } else {
             hood.setIdle();
@@ -514,7 +543,7 @@ public class Superstructure extends SubsystemBase{
         }
         break;
         case REVERSE_INTAKE:
-        intake.reverseRollers();
+        // intake.reverseRollers();
         break;
 
         }
@@ -533,7 +562,8 @@ public class Superstructure extends SubsystemBase{
         Logger.recordOutput("boosted", boostedShooterVelocity);
         shooter.shoot(boostedShooterVelocity);
 
-        if (dashboardIntakeIn || in) {
+        boolean forceIntakeHome = dashboardIntakeIn || in;
+        if (forceIntakeHome) {
             intake.goHome();
         } else {
             intake.shoot();
@@ -735,6 +765,13 @@ public class Superstructure extends SubsystemBase{
         return (lookUpTableTest.getRPS() / 60) + (dashboardShooterBoostRpm * kRpmToRps);
     }
 
+    private double updatePassSetpointsAndGetShooterVelocityRps() {
+        LookUpTablePass.LookUpTableTest passLookUpTableTest =
+            LookUpTablePass.LookUpTableOutput(getPassingDistanceMeters());
+        hood.moveToAngle(passLookUpTableTest.getAngle());
+        return (passLookUpTableTest.getRPM() / 60.0) + (dashboardShooterBoostRpm * kRpmToRps);
+    }
+
     public Rotation2d getRotationToPoint( Translation2d fieldTarget) {
         Pose2d robotPose = drive.getPose();
         Translation2d delta = fieldTarget.minus(robotPose.getTranslation());
@@ -746,17 +783,115 @@ public class Superstructure extends SubsystemBase{
 
 
     public Rotation2d getHubHeading() {
+        boolean usePassingTarget =
+            currentState == SuperstructureCurrentState.PASSING || isInFunnelingXRange();
         Translation2d target;
-        if (currentState == SuperstructureCurrentState.PASSING || isInFunnelingXRange()) {
-            target = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
-                ? new Translation2d(15.5, 6.850)
-                : new Translation2d(2, 7);
+        if (usePassingTarget) {
+            target = getPassingTarget();
         } else {
-            target = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
+            Translation2d hubTarget = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red
                 ? Constants.FieldConstants.HUB_RED.toTranslation2d()
                 : Constants.FieldConstants.HUB_BLUE.toTranslation2d();
+            target = shootOnMoveEnabled ? getLeadCompensatedHubTarget(hubTarget) : hubTarget;
         }
         return getRotationToPoint(target).plus(Rotation2d.fromDegrees(180));
+    }
+
+    private double getPassingDistanceMeters() {
+        return drive.getPose().getTranslation().getDistance(getPassingTarget());
+    }
+
+    private Translation2d getPassingTarget() {
+        boolean isRedAlliance = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
+        Translation2d humanPlayerTarget = isRedAlliance ? kRedPassPoint1 : kBluePassPoint1;
+        Translation2d depotTarget = isRedAlliance ? kRedPassPoint2 : kBluePassPoint2;
+
+        boolean requestHumanPlayer = passingHumanPlayerSub.get();
+        boolean requestDepot = passingDepotSub.get();
+
+        if (requestHumanPlayer == requestDepot) {
+            return getClosestPassingTarget(humanPlayerTarget, depotTarget);
+        }
+
+        return requestHumanPlayer ? humanPlayerTarget : depotTarget;
+    }
+
+    private String getPassingTargetName() {
+        boolean isRedAlliance = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
+        Translation2d humanPlayerTarget = isRedAlliance ? kRedPassPoint1 : kBluePassPoint1;
+        Translation2d selectedTarget = getPassingTarget();
+        return selectedTarget.getDistance(humanPlayerTarget) < 1e-6 ? "Human Player" : "Depot";
+    }
+
+    private Translation2d getClosestPassingTarget(Translation2d optionA, Translation2d optionB) {
+        Translation2d robotTranslation = drive.getPose().getTranslation();
+        double optionADistance = robotTranslation.getDistance(optionA);
+        double optionBDistance = robotTranslation.getDistance(optionB);
+        return optionADistance <= optionBDistance ? optionA : optionB;
+    }
+
+    public void setShootOnMoveEnabled(boolean enabled) {
+        shootOnMoveEnabled = enabled;
+    }
+
+    public void toggleShootOnMove() {
+        shootOnMoveEnabled = !shootOnMoveEnabled;
+    }
+
+    public boolean isShootOnMoveEnabled() {
+        return shootOnMoveEnabled;
+    }
+
+    public Command toggleShootOnMoveCommand() {
+        return Commands.runOnce(this::toggleShootOnMove);
+    }
+
+    private Translation2d getLeadCompensatedHubTarget(Translation2d hubTarget) {
+        Pose2d robotPose = drive.getPose();
+        Translation2d robotToHub = hubTarget.minus(robotPose.getTranslation());
+        double distanceToHubMeters = robotToHub.getNorm();
+        if (distanceToHubMeters < 1e-6) {
+            return hubTarget;
+        }
+
+        ChassisSpeeds robotRelativeSpeeds = drive.getChassisSpeeds();
+        ChassisSpeeds fieldRelativeSpeeds = ChassisSpeeds.fromRobotRelativeSpeeds(
+            robotRelativeSpeeds,
+            robotPose.getRotation());
+        double translationSpeedMps = Math.hypot(
+            fieldRelativeSpeeds.vxMetersPerSecond,
+            fieldRelativeSpeeds.vyMetersPerSecond);
+        if (translationSpeedMps < kMovingShotMinSpeedMps) {
+            return hubTarget;
+        }
+
+        double shotHorizontalSpeedMps = estimateShotHorizontalSpeedMps();
+        double leadTimeSeconds = MathUtil.clamp(
+            distanceToHubMeters / Math.max(shotHorizontalSpeedMps, 1e-6),
+            kMovingShotMinLeadTimeSeconds,
+            kMovingShotMaxLeadTimeSeconds);
+
+        Translation2d leadOffset = new Translation2d(
+            fieldRelativeSpeeds.vxMetersPerSecond * leadTimeSeconds,
+            fieldRelativeSpeeds.vyMetersPerSecond * leadTimeSeconds);
+        Translation2d leadCompensatedTarget = hubTarget.minus(leadOffset);
+
+        Logger.recordOutput("ShotOnMove/LeadTimeSeconds", leadTimeSeconds);
+        Logger.recordOutput("ShotOnMove/LeadOffsetXMeters", leadOffset.getX());
+        Logger.recordOutput("ShotOnMove/LeadOffsetYMeters", leadOffset.getY());
+        return leadCompensatedTarget;
+    }
+
+    private double estimateShotHorizontalSpeedMps() {
+        double shooterRps = shooter.getTargetRPS();
+        if (shooterRps <= 1e-3) {
+            shooterRps = lookUpTable.LookUpTableOutput(getHubDistanceMeters()).getRPS() / 60.0;
+        }
+
+        double hoodAngleRad = Units.degreesToRadians(hood.getTargetAngleDegrees());
+        double shooterLinearSpeedMps = shooterRps * (2.0 * Math.PI) * kShooterWheelRadiusMeters;
+        double horizontalSpeedMps = shooterLinearSpeedMps * Math.cos(hoodAngleRad);
+        return Math.max(kMovingShotFallbackHorizontalMps, horizontalSpeedMps);
     }
 
     public boolean isShootingRequested() {

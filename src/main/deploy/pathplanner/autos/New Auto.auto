@@ -7,19 +7,7 @@
         {
           "type": "path",
           "data": {
-            "pathName": "3"
-          }
-        },
-        {
-          "type": "path",
-          "data": {
-            "pathName": "4"
-          }
-        },
-        {
-          "type": "named",
-          "data": {
-            "name": "shoot"
+            "pathName": "New New Path"
           }
         }
       ]

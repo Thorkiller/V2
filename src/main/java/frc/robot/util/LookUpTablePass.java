@@ -1,16 +1,16 @@
 package frc.robot.util;
 
-public class LookUpTable {
+public class LookUpTablePass {
 
     /**
      * Represents a single entry in the lookup table with distance and corresponding values
      */
-    private static class LookUpTableEntry {
+    private static class LookUpTableEntryPass {
         final double distance;
         final double hoodpiv;
         final double rpm;
 
-        public LookUpTableEntry(double distance, double hoodpiv, double rpm) {
+        public LookUpTableEntryPass(double distance, double hoodpiv, double rpm) {
             this.distance = distance;
             this.hoodpiv = hoodpiv;
             this.rpm = rpm;
@@ -21,23 +21,21 @@ public class LookUpTable {
      * Lookup table entries - adjust these values based on your robot's calibration
      * Distance is in meters (or your preferred unit)
      */
-    private static final LookUpTableEntry[] LOOKUP_TABLE = {
+    private static final LookUpTableEntryPass[] LOOKUP_TABLE = {
         // Format: distance, armPivot (0..90, larger when closer), shooterVelocity (e.g., RPM)
-        new LookUpTableEntry(1.448, 2.6, 2623),
-        new LookUpTableEntry(1.543,   3.3, 2662),
-        new LookUpTableEntry(1.642,    3.6, 2600),
-        new LookUpTableEntry(1.889,   3.8, 2663),
-        new LookUpTableEntry(2.146,    4.1, 2663),
-        new LookUpTableEntry(2.46,   4.2, 2663),
-        new LookUpTableEntry(2.722,    4.35, 2750),
-        new LookUpTableEntry(3.032,    4.4, 2900),
-        new LookUpTableEntry(3.297,    4.4, 3001),
-        new LookUpTableEntry(4.0,     4.3, 3000),
-        
-        
+        new LookUpTableEntryPass(1.448, 2.6, 2623),
+        new LookUpTableEntryPass(1.543,   3.3, 2662),
+        new LookUpTableEntryPass(1.642,    3.6, 2600),
+        new LookUpTableEntryPass(1.889,   3.8, 2663),
+        new LookUpTableEntryPass(2.146,    4.1, 2663),
+        new LookUpTableEntryPass(2.46,   4.2, 2663),
+        new LookUpTableEntryPass(2.722,    4.35, 2750),
+        new LookUpTableEntryPass(3.032,    4.4, 2900),
+        new LookUpTableEntryPass(3.297,    4.4, 3001),
+        new LookUpTableEntryPass(4.0,     4.3, 3000)
     };
 
-    public LookUpTable() {
+    public LookUpTablePass() {
     }
 
     public static class LookUpTableTest {
@@ -54,7 +52,7 @@ public class LookUpTable {
             return armpiv;
         }
 
-        public double getRPS() {
+        public double getRPM() {
             return shooterRPS;
         }
     }
@@ -68,19 +66,19 @@ public class LookUpTable {
     public static LookUpTableTest LookUpTableOutput(double distance) {
         // Handle edge cases: distance below minimum or above maximum
         if (distance <= LOOKUP_TABLE[0].distance) {
-            LookUpTableEntry entry = LOOKUP_TABLE[0];
+            LookUpTableEntryPass entry = LOOKUP_TABLE[0];
             return new LookUpTableTest(entry.hoodpiv, entry.rpm);
         }
 
         if (distance >= LOOKUP_TABLE[LOOKUP_TABLE.length - 1].distance) {
-            LookUpTableEntry entry = LOOKUP_TABLE[LOOKUP_TABLE.length - 1];
+            LookUpTableEntryPass entry = LOOKUP_TABLE[LOOKUP_TABLE.length - 1];
             return new LookUpTableTest(entry.hoodpiv, entry.rpm);
         }
 
         // Find the two entries to interpolate between
         for (int i = 0; i < LOOKUP_TABLE.length - 1; i++) {
-            LookUpTableEntry lower = LOOKUP_TABLE[i];
-            LookUpTableEntry upper = LOOKUP_TABLE[i + 1];
+            LookUpTableEntryPass lower = LOOKUP_TABLE[i];
+            LookUpTableEntryPass upper = LOOKUP_TABLE[i + 1];
 
             if (distance >= lower.distance && distance <= upper.distance) {
                 // Linear interpolation
@@ -94,7 +92,7 @@ public class LookUpTable {
         }
 
         // Fallback (should never reach here)
-        LookUpTableEntry entry = LOOKUP_TABLE[LOOKUP_TABLE.length - 1];
+        LookUpTableEntryPass entry = LOOKUP_TABLE[LOOKUP_TABLE.length - 1];
         return new LookUpTableTest(entry.hoodpiv, entry.rpm);
     }
 

@@ -25,13 +25,29 @@
       },
       "nextControl": null,
       "isLocked": false,
-      "linkedName": null  
+      "linkedName": null
     }
   ],
-  "rotationTargets": [],
+  "rotationTargets": [
+    {
+      "waypointRelativePos": 0.8449197860962581,
+      "rotationDegrees": 0.0
+    },
+    {
+      "waypointRelativePos": 0.9117647058823539,
+      "rotationDegrees": 0.0
+    }
+  ],
   "constraintZones": [],
   "pointTowardsZones": [],
-  "eventMarkers": [],
+  "eventMarkers": [
+    {
+      "name": "drive",
+      "waypointRelativePos": 0.16271186440677948,
+      "endWaypointRelativePos": null,
+      "command": null
+    }
+  ],
   "globalConstraints": {
     "maxVelocity": 3.0,
     "maxAcceleration": 3.0,

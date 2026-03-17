@@ -404,7 +404,7 @@ public class Shooter extends SubsystemBase {
     }
   }
 
-  public void setSpindexerManualOverride(boolean enabled, boolean reverse) {
+  public void  setSpindexerManualOverride(boolean enabled, boolean reverse) {
     spindexerManualEnabled = enabled;
     spindexerManualReverse = enabled && reverse;
   }
