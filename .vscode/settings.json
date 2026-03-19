@@ -1,5 +1,7 @@
 {
   "java.configuration.updateBuildConfiguration": "automatic",
+  "java.import.gradle.java.home": "C:/Users/Public/wpilib/2026/jdk",
+  "java.jdt.ls.java.home": "C:/Users/Public/wpilib/2026/jdk",
   "java.server.launchMode": "Standard",
   "files.exclude": {
     "**/.git": true,

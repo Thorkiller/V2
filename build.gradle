@@ -58,6 +58,8 @@ task(replayWatch, type: JavaExec) {
 }
 
 dependencies {
+
+    implementation 'com.bionanomics.refinery:refinery-roborio-mcp'
     annotationProcessor wpi.java.deps.wpilibAnnotations()
     implementation wpi.java.deps.wpilib()
     implementation wpi.java.vendor.java()
@@ -95,6 +97,7 @@ wpi.sim.addDriverstation()
 // in order to make them all available at runtime. Also adding the manifest so WPILib
 // knows where to look for our Robot Class.
 jar {
+    dependsOn gradle.includedBuild('refinery-roborio-mcp').task(':jar')
     from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
     from('src') { into 'backup/src' }
     from('vendordeps') { into 'backup/vendordeps' }

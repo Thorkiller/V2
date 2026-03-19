@@ -444,7 +444,7 @@ public class Superstructure extends SubsystemBase{
     public boolean shootCheck(){
         if (shooter.isAtVelocity()
             && hood.isAtTargetAngle(hood.getTargetAngleDegrees())
-            && isAimedAtHub()
+            // && isAimedAtHub()
             && drive.getChassisSpeeds().omegaRadiansPerSecond < Units.degreesToRadians(2)) {
             return true;
 
@@ -543,7 +543,10 @@ public class Superstructure extends SubsystemBase{
         }
         break;
         case REVERSE_INTAKE:
-        // intake.reverseRollers();
+        shooter.setOff();
+        hood.setIdle();
+        intake.reverse();
+        shooter.setSpindexerManualOverride(false, false);
         break;
 
         }
@@ -659,6 +662,10 @@ public class Superstructure extends SubsystemBase{
         return Commands.runOnce(() -> {
             wantedState = SuperstructureWantedState.DRIVING;
         });    
+    }
+
+    public Command setReverseIntake() {
+        return Commands.runOnce(this::requestReverseIntake);
     }
 
     public void spawnFuelShot() {

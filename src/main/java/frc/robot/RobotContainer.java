@@ -13,6 +13,7 @@ import static edu.wpi.first.units.Units.RotationsPerSecond;
 import org.ironmaple.simulation.SimulatedArena;
 import org.ironmaple.simulation.drivesims.SwerveDriveSimulation;
 import org.ironmaple.simulation.seasonspecific.rebuilt2026.RebuiltFuelOnField;
+import org.littletonrobotics.junction.Logger;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 import org.photonvision.PhotonCamera;
 
@@ -32,9 +33,11 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.RobotBase;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.button.Trigger;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import java.util.Arrays;
 import java.util.OptionalDouble;
@@ -228,14 +231,34 @@ driveSub.setDefaultCommand(Commands.run(
                 () -> driveSub.runVelocity(getAssistedTeleopSpeeds()),
                 driveSub));
 
-                joystick.rightTrigger(0.2).whileTrue(DriveCommands.joystickDriveAtAngle(driveSub, ()-> -joystick.getLeftY(), ()-> -joystick.getLeftX(),()-> (superstructure.getHubHeading())));
+                Trigger rightTrigger = joystick.rightTrigger(0.2);
+                Trigger leftTrigger = joystick.leftTrigger(0.2);
+                Trigger leftBumper = joystick.leftBumper();
+                Trigger rightBumper = joystick.rightBumper();
+                Trigger aButton = joystick.a();
+                Trigger bButton = joystick.b();
+                Trigger xButton = joystick.x();
+                Trigger yButton = joystick.y();
+                Trigger startButton = joystick.start();
+
+                bindControllerLogging("RightTrigger", rightTrigger);
+                bindControllerLogging("LeftTrigger", leftTrigger);
+                bindControllerLogging("LeftBumper", leftBumper);
+                bindControllerLogging("RightBumper", rightBumper);
+                bindControllerLogging("A", aButton);
+                bindControllerLogging("B", bButton);
+                bindControllerLogging("X", xButton);
+                bindControllerLogging("Y", yButton);
+                bindControllerLogging("Start", startButton);
+
+                // rightTrigger.whileTrue(DriveCommands.joystickDriveAtAngle(driveSub, ()-> -joystick.getLeftY(), ()-> -joystick.getLeftX(),()-> (superstructure.getHubHeading())));
 
 
-            joystick.leftTrigger(0.2).onTrue(Commands.runOnce(() -> {
+            leftTrigger.onTrue(Commands.runOnce(() -> {
                 superstructure.requestIntake();
               
             })).onFalse(superstructure.setDriving());
-            joystick.rightTrigger(0.2)
+            rightTrigger
                 
                 .onTrue(Commands.sequence(
                     Commands.runOnce(() -> {
@@ -245,13 +268,13 @@ driveSub.setDefaultCommand(Commands.run(
                     }))).onFalse(superstructure.setDriving());
                     
                     
-                    joystick.leftBumper().onTrue(superstructure.goIn(true)).onFalse(superstructure.goIn(false));
-                    joystick.rightBumper().onTrue(superstructure.spin(true)).onFalse(superstructure.spin(false));
+                    leftBumper.onTrue(superstructure.goIn(true)).onFalse(superstructure.goIn(false));
+                    rightBumper.onTrue(superstructure.spin(true)).onFalse(superstructure.spin(false));
 
     
 
 
-                 joystick.a()
+                 aButton
                 .onTrue(Commands.sequence(
                     Commands.runOnce(() -> {
                       if (shouldSwitchSuperstructure()) {
@@ -261,19 +284,42 @@ driveSub.setDefaultCommand(Commands.run(
 
 
                 
-            joystick.y().onTrue(Commands.runOnce(() -> {
+            yButton.onTrue(Commands.runOnce(() -> {
               if (shouldSwitchSuperstructure()) {
                 superstructure.wantedState = Superstructure.SuperstructureWantedState.DRIVING;
               }
             }));
 
-            joystick.b().onTrue(superstructure.toggleShootOnMoveCommand());
+            startButton
+                .onTrue(superstructure.setReverseIntake())
+                .onFalse(superstructure.setDriving());
 
-            joystick.x().whileTrue(Commands.runOnce(()-> driveSub.setPose(new Pose2d(driveSub.getPose().getX(),driveSub.getPose().getY(),new Rotation2d())))); 
+            bButton.onTrue(superstructure.toggleShootOnMoveCommand());
+
+            xButton.whileTrue(Commands.runOnce(()-> driveSub.setPose(new Pose2d(driveSub.getPose().getX(),driveSub.getPose().getY(),new Rotation2d())))); 
 
 
     
     
+  }
+
+  private void bindControllerLogging(String controlName, Trigger trigger) {
+    trigger.onTrue(logControllerEvent(controlName, true));
+    trigger.onFalse(logControllerEvent(controlName, false));
+  }
+
+  private Command logControllerEvent(String controlName, boolean pressed) {
+    return Commands.runOnce(() -> {
+      double timestampSeconds = Timer.getFPGATimestamp();
+      String baseKey = "Controls/Driver/" + controlName;
+      Logger.recordOutput(baseKey + "/Pressed", pressed);
+      Logger.recordOutput(baseKey + "/EventTimestampSec", timestampSeconds);
+      if (pressed) {
+        Logger.recordOutput(baseKey + "/LastPressedTimestampSec", timestampSeconds);
+      } else {
+        Logger.recordOutput(baseKey + "/LastReleasedTimestampSec", timestampSeconds);
+      }
+    }).ignoringDisable(true);
   }
 
   private Translation2d getLinearVelocityFromJoysticks(double x, double y) {

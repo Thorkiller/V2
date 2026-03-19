@@ -91,17 +91,19 @@ public class Intake extends SubsystemBase{
         new PIDController(kIntakeP, kIntakeI, kIntakeD);
 
     public IntakeInputsAutoLogged inputs = new IntakeInputsAutoLogged();    
-     public enum WantedState {
+    public enum WantedState {
         IDLE,
         INTAKE,
         HOME,
-        SHOOT
+        SHOOT,
+        REVERSE
     }
     public enum CurrentState {
         IDLE,
         INTAKE,
         HOME,
-        SHOOT
+        SHOOT,
+        REVERSE
     }
 
     public WantedState wantedState = WantedState.IDLE;
@@ -215,8 +217,11 @@ public class Intake extends SubsystemBase{
             case HOME:
                 currentState = CurrentState.HOME;
                 break;
-                case SHOOT:
+            case SHOOT:
                 currentState = CurrentState.SHOOT;
+                break;
+            case REVERSE:
+                currentState = CurrentState.REVERSE;
                 break;
         }
 
@@ -274,6 +279,18 @@ public class Intake extends SubsystemBase{
                 }
                 intakeWheels.setVoltage(-4);
                 break;
+            case REVERSE:
+                double reversePos = intakeMotor.getPosition().getValueAsDouble();
+                if (Math.abs(reversePos - kIntakePositionRotations) <= kPositionToleranceRotations) {
+                    intakeMotor.setVoltage(0);
+                    intakePid.reset();
+                } else {
+                    double reverseOutput = intakePid.calculate(reversePos, kIntakePositionRotations);
+                    reverseOutput = Math.max(-kMaxIntakePidVoltage, Math.min(kMaxIntakePidVoltage, reverseOutput));
+                    intakeMotor.setVoltage(reverseOutput);
+                }
+                intakeWheels.setVoltage(kIntakeVoltage);
+                break;
         }
     }
 
@@ -287,8 +304,12 @@ public class Intake extends SubsystemBase{
     public void goHome() {
         wantedState = WantedState.HOME;
     }
-      public void shoot() {
+    public void shoot() {
         wantedState = WantedState.SHOOT;
+    }
+
+    public void reverse() {
+        wantedState = WantedState.REVERSE;
     }
 
 
