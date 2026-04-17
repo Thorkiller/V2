@@ -264,7 +264,7 @@ public class Shooter extends SubsystemBase {
         currentState = CurrentState.PRE_SHOOT;
         break;
       case SHOOT:
-        if(shooterLeaderMotor.getVelocity().getValueAsDouble() > targetRPS-4){
+        if(shooterLeaderMotor.getVelocity().getValueAsDouble() == targetRPS){
           currentState = CurrentState.SHOOT;
         }
         else if(shooterLeaderMotor.getVelocity().getValueAsDouble() < targetRPS- 4){
@@ -298,7 +298,7 @@ public class Shooter extends SubsystemBase {
       shooterLeaderMotor.setControl(shooterVoltage.withVelocity(targetRPS));
 
       if(isAtVelocity() && spindexer){
-         spindexerSpinnerMotor.setVoltage(4.1);
+         spindexerSpinnerMotor.setVoltage(6);
          
         spindexerWheelMotor.setVoltage(-12);
 
@@ -314,12 +314,12 @@ public class Shooter extends SubsystemBase {
       case SHOOT:
           shooterLeaderMotor.setControl(shooterVoltage.withVelocity(targetRPS));
 
-        spindexerSpinnerMotor.setVoltage(4.1);
+        spindexerSpinnerMotor.setVoltage(6);
         spindexerWheelMotor.setVoltage(-12);
         break;
       case SHOOTAREA:
         shooterLeaderMotor.setVoltage(2);;
-        spindexerSpinnerMotor.setVoltage(2);
+        spindexerSpinnerMotor.setVoltage(0);
         spindexerWheelMotor.setVoltage(0);
         break;
 
@@ -404,13 +404,13 @@ public class Shooter extends SubsystemBase {
     }
   }
 
-  public void setSpindexerManualOverride(boolean enabled, boolean reverse) {
+  public void  setSpindexerManualOverride(boolean enabled, boolean reverse) {
     spindexerManualEnabled = enabled;
     spindexerManualReverse = enabled && reverse;
   }
 
   private void setSpindexerManualVoltages() {
-    double spinnerVoltage = spindexerManualReverse ? -4.1:4.1 ;
+    double spinnerVoltage = spindexerManualReverse ? -7.01:7.01 ;
     double wheelVoltage = spindexerManualReverse ? 12 : -12;
     spindexerSpinnerMotor.setVoltage(spinnerVoltage);
     spindexerWheelMotor.setVoltage(wheelVoltage);

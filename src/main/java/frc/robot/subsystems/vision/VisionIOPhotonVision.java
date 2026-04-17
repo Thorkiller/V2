@@ -47,7 +47,13 @@ public class VisionIOPhotonVision implements VisionIO {
         // Read new camera observations
         Set<Short> tagIds = new HashSet<>();
         List<PoseObservation> poseObservations = new LinkedList<>();
+        List<TargetObservation> targetObservations = new LinkedList<>();
         for (var result : camera.getAllUnreadResults()) {
+            for (var target : result.targets) {
+                targetObservations.add(new TargetObservation(
+                        Rotation2d.fromDegrees(target.getYaw()),
+                        Rotation2d.fromDegrees(target.getPitch())));
+            }
             // Update latest target observation
             if (result.hasTargets()) {
                 inputs.latestTargetObservation = new TargetObservation(
@@ -113,6 +119,12 @@ public class VisionIOPhotonVision implements VisionIO {
             }
         }
 
+        // Save simple target observations to inputs object
+        inputs.targetObservations = new TargetObservation[targetObservations.size()];
+        for (int i = 0; i < targetObservations.size(); i++) {
+            inputs.targetObservations[i] = targetObservations.get(i);
+        }
+
         // Save pose observations to inputs object
         inputs.poseObservations = new PoseObservation[poseObservations.size()];
         for (int i = 0; i < poseObservations.size(); i++) {
@@ -127,3 +139,5 @@ public class VisionIOPhotonVision implements VisionIO {
         }
     }
 }
+
+

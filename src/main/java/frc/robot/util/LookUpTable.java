@@ -22,17 +22,26 @@ public class LookUpTable {
      * Distance is in meters (or your preferred unit)
      */
     private static final LookUpTableEntry[] LOOKUP_TABLE = {
-        // Format: distance, armPivot (0..90, larger when closer), shooterVelocity (e.g., RPM)
-        new LookUpTableEntry(1.448, 2.6, 2623),
-        new LookUpTableEntry(1.543,   3.3, 2662),
-        new LookUpTableEntry(1.642,    3.6, 2600),
-        new LookUpTableEntry(1.889,   3.8, 2663),
-        new LookUpTableEntry(2.146,    4.1, 2663),
-        new LookUpTableEntry(2.46,   4.2, 2663),
-        new LookUpTableEntry(2.722,    4.35, 2750),
-        new LookUpTableEntry(3.032,    4.4, 2900),
-        new LookUpTableEntry(3.297,    4.4, 3001),
-        new LookUpTableEntry(4.0,     4.3, 3000)
+        // Format: distance, hoodPivotDegrees, shooterVelocity (RPM)
+        new LookUpTableEntry(1.448, 15.9649122807, 2480),
+        new LookUpTableEntry(1.543, 20.2631578947, 2760),
+        new LookUpTableEntry(1.642, 22.1052631579, 2465),
+        new LookUpTableEntry(1.889, 23.3333333333, 2835),
+        new LookUpTableEntry(2.146, 25.1754385965, 2540),
+        new LookUpTableEntry(2.460, 25.7894736842, 2865),
+        new LookUpTableEntry(2.722, 26.7105263158, 2980),
+        new LookUpTableEntry(3.032, 27.0175438596, 3140),
+        new LookUpTableEntry(3.297, 27.0175438596, 3290),
+        new LookUpTableEntry(3.617, 27.3245614035, 3445),
+        new LookUpTableEntry(3.937, 27.5087719298, 3575),
+        new LookUpTableEntry(4.257, 27.6315789474, 3705),
+        new LookUpTableEntry(4.577, 27.7543859649, 3830),
+        new LookUpTableEntry(4.897, 27.9385964912, 3960),
+        new LookUpTableEntry(5.217, 28.1228070175, 4095),
+        new LookUpTableEntry(5.537, 28.2456140351, 4235),
+        new LookUpTableEntry(5.857, 28.3684210526, 4380),
+        
+        
     };
 
     public LookUpTable() {

@@ -1,8 +1,6 @@
 package frc.robot.subsystems.Hood;
-
 import org.littletonrobotics.junction.AutoLog;
 import org.littletonrobotics.junction.Logger;
-
 import com.ctre.phoenix6.configs.MotionMagicConfigs;
 import com.ctre.phoenix6.configs.Slot0Configs;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
@@ -12,8 +10,6 @@ import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.sim.CANcoderSimState;
 import com.ctre.phoenix6.sim.TalonFXSimState;
 import com.ctre.phoenix6.signals.InvertedValue;
-import com.ctre.phoenix6.signals.NeutralModeValue;
-
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.RobotBase;
@@ -59,6 +55,7 @@ public class Hood extends SubsystemBase{
         public double targetAngleDegrees = 0.0;
         public double hoodAppliedVoltage = 0.0;
         public double hoodCurrent = 0.0;
+        public double hoodTemp = 0;
         public String currentState = "IDLE";
         public String wantedState = "IDLE";
         public boolean atTargetAngle = false;
@@ -159,6 +156,7 @@ private double jerk = 0;
         inputs.atTargetAngle = Math.abs(inputs.hoodAngleDegrees - targetAngleDegrees) < 1.0;
         inputs.hoodMotorConnected = hoodMotor.isConnected();
         inputs.hoodEncoderConnected = hoodEncoder.isConnected();
+        inputs.hoodTemp = hoodMotor.getDeviceTemp().getValueAsDouble();
     }
 
     public boolean isAtTargetAngle() {
@@ -204,6 +202,10 @@ private double jerk = 0;
 
     public double getTargetAngleDegrees() {
         return targetAngleDegrees;
+    }
+
+    public double getCurrentAngleDegrees() {
+        return inputs.hoodAngleDegrees;
     }
     
 }

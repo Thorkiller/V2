@@ -61,6 +61,14 @@ import org.littletonrobotics.junction.AutoLogOutput;
 import org.littletonrobotics.junction.Logger;
 
 public class Drive extends SubsystemBase implements Vision.VisionConsumer {
+    // PathPlanner PID constants — change these to tune auto path following
+    public static double PP_TRANSLATION_KP = 5.0;
+    public static double PP_TRANSLATION_KI = 0.0;
+    public static double PP_TRANSLATION_KD = 0.0;
+    public static double PP_ROTATION_KP = 10;
+    public static double PP_ROTATION_KI = 0;
+    public static double PP_ROTATION_KD = 1;
+
     // TunerConstants doesn't include these constants, so they are declared locally
     static final double ODOMETRY_FREQUENCY =
             new CANBus(TunerConstants.DrivetrainConstants.CANBusName).isNetworkFD() ? 250.0 : 100.0;
@@ -73,14 +81,14 @@ public class Drive extends SubsystemBase implements Vision.VisionConsumer {
                     Math.hypot(TunerConstants.BackRight.LocationX, TunerConstants.BackRight.LocationY)));
 
     // PathPlanner config constants
-    private static final double ROBOT_MASS_KG = 74.088;
-    private static final double ROBOT_MOI = 6.883;
+    private static final double ROBOT_MASS_KG = 65.317; // 144 lbs
+    private static final double ROBOT_MOI = 3.24; // estimated: (1/12)*mass*(l^2+w^2), tune with CAD
     private static final double WHEEL_COF = 1.2;
     private static final RobotConfig    PP_CONFIG = new RobotConfig(
             ROBOT_MASS_KG,
             ROBOT_MOI,
             new ModuleConfig(
-                    TunerConstants.FrontLeft.WheelRadius,
+                    TunerConstants.FrontLeft.WheelRadius ,
                     TunerConstants.kSpeedAt12Volts.in(MetersPerSecond),
                     WHEEL_COF,
                     DCMotor.getKrakenX60Foc(1).withReduction(TunerConstants.FrontLeft.DriveMotorGearRatio),
@@ -151,10 +159,19 @@ public class Drive extends SubsystemBase implements Vision.VisionConsumer {
                 this::setPose,
                 this::getChassisSpeeds,
                 this::runVelocity,
-                new PPHolonomicDriveController(new PIDConstants(1, 0.0, 0.0), new PIDConstants(1, 0.0, 0.0)),
+                new PPHolonomicDriveController(
+                        new PIDConstants(PP_TRANSLATION_KP, PP_TRANSLATION_KI, PP_TRANSLATION_KD),
+                        new PIDConstants(PP_ROTATION_KP, PP_ROTATION_KI, PP_ROTATION_KD)
+                        ),
                 PP_CONFIG,
                 () -> DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red,
                 this);
+        Logger.recordOutput("Drive/PID/PP_TranslationKP", PP_TRANSLATION_KP);
+        Logger.recordOutput("Drive/PID/PP_TranslationKI", PP_TRANSLATION_KI);
+        Logger.recordOutput("Drive/PID/PP_TranslationKD", PP_TRANSLATION_KD);
+        Logger.recordOutput("Drive/PID/PP_RotationKP", PP_ROTATION_KP);
+        Logger.recordOutput("Drive/PID/PP_RotationKI", PP_ROTATION_KI);
+        Logger.recordOutput("Drive/PID/PP_RotationKD", PP_ROTATION_KD);
         Pathfinding.setPathfinder(new LocalADStarAK());
         PathPlannerLogging.setLogActivePathCallback((activePath) -> {
             Logger.recordOutput("Odometry/Trajectory", activePath.toArray(new Pose2d[activePath.size()]));

@@ -36,13 +36,14 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 public class DriveCommands {
     private static final double DEADBAND = 0.1;
-    private static final double ANGLE_KP = 1;
+    private static final double ANGLE_KP = 2;
     private static final double ANGLE_KD = 0.1;
-    private static final double ANGLE_MAX_VELOCITY = 5;
-    private static final double ANGLE_MAX_ACCELERATION = 10;
+    private static final double ANGLE_MAX_VELOCITY = 6;
+    private static final double ANGLE_MAX_ACCELERATION =20;
     private static final double FF_START_DELAY = 2.0; // Secs
     private static final double FF_RAMP_RATE = 0.1; // Volts/Sec
     private static final double WHEEL_RADIUS_MAX_VELOCITY = 0.25; // Rad/Sec
@@ -99,6 +100,15 @@ public class DriveCommands {
      */
     public static Command joystickDriveAtAngle(
             Drive drive, DoubleSupplier xSupplier, DoubleSupplier ySupplier, Supplier<Rotation2d> rotationSupplier) {
+        return joystickDriveAtAngle(drive, xSupplier, ySupplier, rotationSupplier, speeds -> speeds);
+    }
+
+    public static Command joystickDriveAtAngle(
+            Drive drive,
+            DoubleSupplier xSupplier,
+            DoubleSupplier ySupplier,
+            Supplier<Rotation2d> rotationSupplier,
+            UnaryOperator<ChassisSpeeds> fieldSpeedTransformer) {
 
         // Create PID controller
         ProfiledPIDController angleController = new ProfiledPIDController(
@@ -122,6 +132,7 @@ public class DriveCommands {
                                     linearVelocity.getX() * drive.getMaxLinearSpeedMetersPerSec(),
                                     linearVelocity.getY() * drive.getMaxLinearSpeedMetersPerSec(),
                                     omega);
+                            speeds = fieldSpeedTransformer.apply(speeds);
                             boolean isFlipped = DriverStation.getAlliance().isPresent()
                                     && DriverStation.getAlliance().get() == Alliance.Red;
                             drive.runVelocity(ChassisSpeeds.fromFieldRelativeSpeeds(

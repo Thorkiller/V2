@@ -22,6 +22,7 @@ public interface VisionIO {
     class VisionIOInputs {
         public boolean connected = false;
         public TargetObservation latestTargetObservation = new TargetObservation(new Rotation2d(), new Rotation2d());
+        public TargetObservation[] targetObservations = new TargetObservation[0];
         public PoseObservation[] poseObservations = new PoseObservation[0];
         public int[] tagIds = new int[0];
     }
@@ -46,3 +47,5 @@ public interface VisionIO {
 
     default void updateInputs(VisionIOInputs inputs) {}
 }
+
+
