@@ -255,8 +255,8 @@ driveSub.setDefaultCommand(Commands.run(
                 () -> driveSub.runVelocity(getAssistedTeleopSpeeds()),
                 driveSub));
 
-                Trigger rightTrigger = joystick.rightTrigger(0.2);
-                Trigger leftTrigger = joystick.leftTrigger(0.2);
+                Trigger rightTrigger = joystick.rightTrigger(0.199);
+                Trigger leftTrigger = joystick.leftTrigger(0.199);
                 Trigger leftBumper = joystick.leftBumper();
                 Trigger rightBumper = joystick.rightBumper();
                 Trigger aButton = joystick.a();
