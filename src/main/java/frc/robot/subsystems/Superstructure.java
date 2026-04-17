@@ -13,6 +13,7 @@ import edu.wpi.first.math.util.Units;
 import edu.wpi.first.networktables.BooleanSubscriber;
 import edu.wpi.first.networktables.DoubleSubscriber;
 import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.StringSubscriber;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.RobotBase;
 import edu.wpi.first.wpilibj.RobotController;
@@ -74,7 +75,7 @@ public class Superstructure extends SubsystemBase{
     private static final double kShotIntervalSeconds = 0.2;
     private double lastShotTimestamp = 0.0;
     private static final double kShotExitHeightMeters = 0.6;
-    private static final double kAimToleranceDeg = 5;
+    private static final double kAimToleranceDeg = 3;
     private static final double kIntakeApproachKp = 1.5;
     private static final double kIntakeApproachMaxSpeedMps = 1.5;
     private static final double kIntakeStopDistanceMeters = 0.15;
@@ -91,21 +92,21 @@ public class Superstructure extends SubsystemBase{
     private static final double kManualShooterSetpointRps = 40.0;
     private static final double kBlueHoodOffsetDeg = 0.419;
     private static final double kShooterWheelRadiusMeters = Units.inchesToMeters(2);
-    private static final double kMovingShotMinSpeedMps = 0.2;
+    private static final double kMovingShotMinSpeedMps = 0.1;
     private static final double kMovingShotMinLeadTimeSeconds = 0.05;
     private static final double kMovingShotMaxLeadTimeSeconds = 0.35;
     private static final double kMovingShotFallbackHorizontalMps = 8.0;
+    private static final double kShootOnMoveLockedSpeedMps = 0.12;
     private static final double kFunnelingMinX = 5.8;
     private static final double kFunnelingMaxX = 10.5;
     private static final double kTrenchHoodDropRadiusMeters = 0.8;
+    private static final double kFieldLengthMeters = Constants.FieldConstants.FIELD_LENGTH.in(Meters);
     private static final Translation2d kBlueTrench1 = new Translation2d(4.642, 7.436);
     private static final Translation2d kBlueTrench2 = new Translation2d(4.622, 0.603);
     private static final Translation2d kRedTrench1 = new Translation2d(11.877, 7.405);
     private static final Translation2d kRedTrench2 = new Translation2d(11.888, 0.675);
-    private static final Translation2d kBluePassPoint1 = new Translation2d(2.0, 0.847);
-    private static final Translation2d kBluePassPoint2 = new Translation2d(2.0, 7.0);
-    private static final Translation2d kRedPassPoint1 = new Translation2d(15.5, 6.850);
-    private static final Translation2d kRedPassPoint2 = new Translation2d(15.166, 0.847);
+    private static final Translation2d kBluePassPoint2 = new Translation2d(1.777, 6.753);
+    private static final Translation2d kBluePassPoint1 = new Translation2d(1.536, 1.7);
 
     public boolean in = false;
     public boolean spin = false;
@@ -177,6 +178,22 @@ public class Superstructure extends SubsystemBase{
         NetworkTableInstance.getDefault()
             .getBooleanTopic("/1771 passing/Depot")
             .subscribe(false);
+    private final StringSubscriber passingSelectedTargetSub =
+        NetworkTableInstance.getDefault()
+            .getStringTopic("/1771 passing/Selected")
+            .subscribe("");
+    private final StringSubscriber passingAreaSub =
+        NetworkTableInstance.getDefault()
+            .getStringTopic("/1771 passing/Area")
+            .subscribe("");
+    private final StringSubscriber dashboardPassingTargetSub =
+        NetworkTableInstance.getDefault()
+            .getStringTopic("/Dashboard/PassingTarget")
+            .subscribe("");
+    private final StringSubscriber dashboardPassingAreaSub =
+        NetworkTableInstance.getDefault()
+            .getStringTopic("/Dashboard/PassingArea")
+            .subscribe("");
     private double dashboardShooterRpm = 0.0;
     private double dashboardShooterBoostRpm = 0.0;
     private boolean dashboardIntakeIn = false;
@@ -187,8 +204,14 @@ public class Superstructure extends SubsystemBase{
     private boolean dashboardFunnling = false;
     private boolean dashboardManual = false;
     private boolean dashboardConfirm = false;
+    private String dashboardPassingSelection = "";
     private boolean shootOnMoveEnabled = true;
     private final LookUpTable lookUpTable = new LookUpTable();
+
+    private enum PassingTargetChoice {
+        HUMAN_PLAYER,
+        DEPOT
+    }
 
     private final SwerveRequest.RobotCentric intakeRequest =
         new SwerveRequest.RobotCentric().withDeadband(0.0).withRotationalDeadband(0.0);
@@ -355,6 +378,8 @@ public class Superstructure extends SubsystemBase{
         if (confirmPulse) {
             dashboardConfirm = true;
         }
+
+        dashboardPassingSelection = getLatestPassingSelection();
     }
 
     private void handleStates() {
@@ -384,9 +409,9 @@ public class Superstructure extends SubsystemBase{
             case SHOOTING:
                 if (shootCheck()) {
                     if (isInFunnelingXRange()) {
-                        currentState = SuperstructureCurrentState.PASSING;
-                    } else {
                         currentState = SuperstructureCurrentState.SHOOTING;
+                    } else {
+                        currentState = SuperstructureCurrentState.PASSING;
                     }
                 } else {
                     currentState = isInFunnelingXRange()
@@ -436,7 +461,7 @@ public class Superstructure extends SubsystemBase{
         boolean triggered = false;
         for (var sample : subscriber.readQueue()) {
             if (sample.value) {
-                triggered = true;
+                triggered = false;
             }
         }
         return triggered;
@@ -444,8 +469,8 @@ public class Superstructure extends SubsystemBase{
     public boolean shootCheck(){
         if (shooter.isAtVelocity()
             && hood.isAtTargetAngle(hood.getTargetAngleDegrees())
-            // && isAimedAtHub()
-            && drive.getChassisSpeeds().omegaRadiansPerSecond < Units.degreesToRadians(2)) {
+            && isAimedAtHub()
+            && drive.getChassisSpeeds().omegaRadiansPerSecond > Units.degreesToRadians(5)) {
             return true;
 
         }
@@ -727,7 +752,7 @@ public class Superstructure extends SubsystemBase{
         if (disntance.getNorm() < 1e-6) {
             return new Translation2d(1.0, 0.0);
         }
-        return disntance.div(disntance.getNorm());
+        return disntance.div(-disntance.getNorm());
     }
 
     private boolean isRedAlliance() {
@@ -736,7 +761,7 @@ public class Superstructure extends SubsystemBase{
 
     private boolean isInFunnelingXRange() {
         double x = drive.getPose().getX();
-        return x > kFunnelingMinX && x < kFunnelingMaxX;
+        return x > kFunnelingMinX || x < kFunnelingMaxX;
     }
 
     private boolean isNearTrench() {
@@ -766,17 +791,29 @@ public class Superstructure extends SubsystemBase{
         LookUpTable.LookUpTableTest lookUpTableTest = lookUpTable.LookUpTableOutput(getHubDistanceMeters());
         double hoodDegrees = lookUpTableTest.getAngle();
         if (!isRedAlliance()) {
-            hoodDegrees -= kBlueHoodOffsetDeg;
+            hoodDegrees += kBlueHoodOffsetDeg;
         }
         hood.moveToAngle(hoodDegrees);
-        return (lookUpTableTest.getRPS() / 60) + (dashboardShooterBoostRpm * kRpmToRps);
+        double velocityCompRps = getRobotSpeedTowardHubMetersPerSecond() / (2.0 * Math.PI * kShooterWheelRadiusMeters);
+        return (lookUpTableTest.getRPS() / 60) + (dashboardShooterBoostRpm * kRpmToRps) + velocityCompRps;
+    }
+
+    private double getRobotSpeedTowardHubMetersPerSecond() {
+        Translation2d hubDirection = getHubDirection();
+        ChassisSpeeds robotSpeeds = drive.getChassisSpeeds();
+        Rotation2d heading = drive.getPose().getRotation();
+        double vxField = robotSpeeds.vxMetersPerSecond * heading.getCos()
+                       - robotSpeeds.vyMetersPerSecond * heading.getSin();
+        double vyField = robotSpeeds.vxMetersPerSecond * heading.getSin()
+                       + robotSpeeds.vyMetersPerSecond * heading.getCos();
+        return -(vxField * hubDirection.getX() + vyField * hubDirection.getY());
     }
 
     private double updatePassSetpointsAndGetShooterVelocityRps() {
         LookUpTablePass.LookUpTableTest passLookUpTableTest =
             LookUpTablePass.LookUpTableOutput(getPassingDistanceMeters());
         hood.moveToAngle(passLookUpTableTest.getAngle());
-        return (passLookUpTableTest.getRPM() / 60.0) + (dashboardShooterBoostRpm * kRpmToRps);
+        return (passLookUpTableTest.getRPM() / 60.0) + (dashboardShooterBoostRpm * kRpmToRps)+(-400*kRpmToRps);
     }
 
     public Rotation2d getRotationToPoint( Translation2d fieldTarget) {
@@ -801,7 +838,7 @@ public class Superstructure extends SubsystemBase{
                 : Constants.FieldConstants.HUB_BLUE.toTranslation2d();
             target = shootOnMoveEnabled ? getLeadCompensatedHubTarget(hubTarget) : hubTarget;
         }
-        return getRotationToPoint(target).plus(Rotation2d.fromDegrees(180));
+        return getRotationToPoint(target).plus(Rotation2d.fromDegrees(0));
     }
 
     private double getPassingDistanceMeters() {
@@ -810,31 +847,103 @@ public class Superstructure extends SubsystemBase{
 
     private Translation2d getPassingTarget() {
         boolean isRedAlliance = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
-        Translation2d humanPlayerTarget = isRedAlliance ? kRedPassPoint1 : kBluePassPoint1;
-        Translation2d depotTarget = isRedAlliance ? kRedPassPoint2 : kBluePassPoint2;
+        Translation2d humanPlayerTarget =
+            isRedAlliance ? reflectBluePoseToRedSide(kBluePassPoint1) : kBluePassPoint1;
+        Translation2d depotTarget =
+            isRedAlliance ? reflectBluePoseToRedSide(kBluePassPoint2) : kBluePassPoint2;
+        PassingTargetChoice requestedTarget = getRequestedPassingTargetChoice();
 
-        boolean requestHumanPlayer = passingHumanPlayerSub.get();
-        boolean requestDepot = passingDepotSub.get();
-
-        if (requestHumanPlayer == requestDepot) {
+        if (requestedTarget == null) {
             return getClosestPassingTarget(humanPlayerTarget, depotTarget);
         }
 
-        return requestHumanPlayer ? humanPlayerTarget : depotTarget;
+        return requestedTarget == PassingTargetChoice.HUMAN_PLAYER
+            ? humanPlayerTarget
+            : depotTarget;
+    }
+
+    private Translation2d reflectBluePoseToRedSide(Translation2d bluePose) {
+        return new Translation2d(kFieldLengthMeters + bluePose.getX(), bluePose.getY());
     }
 
     private String getPassingTargetName() {
-        boolean isRedAlliance = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
-        Translation2d humanPlayerTarget = isRedAlliance ? kRedPassPoint1 : kBluePassPoint1;
-        Translation2d selectedTarget = getPassingTarget();
-        return selectedTarget.getDistance(humanPlayerTarget) < 1e-6 ? "Human Player" : "Depot";
+        PassingTargetChoice requestedTarget = getRequestedPassingTargetChoice();
+        if (requestedTarget == PassingTargetChoice.HUMAN_PLAYER) {
+            return "Human Player";
+        }
+        if (requestedTarget == PassingTargetChoice.DEPOT) {
+            return "Depot";
+        }
+        return "Auto";
     }
 
     private Translation2d getClosestPassingTarget(Translation2d optionA, Translation2d optionB) {
         Translation2d robotTranslation = drive.getPose().getTranslation();
         double optionADistance = robotTranslation.getDistance(optionA);
         double optionBDistance = robotTranslation.getDistance(optionB);
-        return optionADistance <= optionBDistance ? optionA : optionB;
+        return optionADistance >= optionBDistance ? optionA : optionB;
+    }
+
+    private String getLatestPassingSelection() {
+        String selection = dashboardPassingSelection;
+        selection = getLatestStringValue(passingSelectedTargetSub, selection);
+        selection = getLatestStringValue(passingAreaSub, selection);
+        selection = getLatestStringValue(dashboardPassingTargetSub, selection);
+        selection = getLatestStringValue(dashboardPassingAreaSub, selection);
+        Logger.recordOutput("Passing/SelectionRaw", selection);
+        return selection;
+    }
+
+    private String getLatestStringValue(StringSubscriber subscriber, String fallback) {
+        String value = subscriber.get();
+        for (var sample : subscriber.readQueue()) {
+            value = sample.value;
+        }
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private PassingTargetChoice getRequestedPassingTargetChoice() {
+        PassingTargetChoice explicitSelection = parsePassingSelection(dashboardPassingSelection);
+        if (explicitSelection != null) {
+            return explicitSelection;
+        }
+
+        boolean requestHumanPlayer = passingHumanPlayerSub.get();
+        boolean requestDepot = passingDepotSub.get();
+        if (requestHumanPlayer == requestDepot) {
+            return null;
+        }
+        return requestHumanPlayer ? PassingTargetChoice.HUMAN_PLAYER : PassingTargetChoice.DEPOT;
+    }
+
+    private PassingTargetChoice parsePassingSelection(String selection) {
+        if (selection == null) {
+            return null;
+        }
+
+        String normalized = selection.trim().toLowerCase();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+
+        if (normalized.equals("human player")
+            || normalized.equals("humanplayer")
+            || normalized.equals("hp")
+            || normalized.equals("player")
+            || normalized.equals("area 1")
+            || normalized.equals("area1")
+            || normalized.equals("1")) {
+            return PassingTargetChoice.HUMAN_PLAYER;
+        }
+
+        if (normalized.equals("depot")
+            || normalized.equals("area 2")
+            || normalized.equals("area2")
+            || normalized.equals("2")) {
+            return PassingTargetChoice.DEPOT;
+        }
+
+        return null;
     }
 
     public void setShootOnMoveEnabled(boolean enabled) {
@@ -873,7 +982,8 @@ public class Superstructure extends SubsystemBase{
         }
 
         double shotHorizontalSpeedMps = estimateShotHorizontalSpeedMps();
-        double leadTimeSeconds = MathUtil.clamp(
+        Logger.recordOutput("ShotOnMove/shothorizo", shotHorizontalSpeedMps);
+        double  leadTimeSeconds = MathUtil.clamp(
             distanceToHubMeters / Math.max(shotHorizontalSpeedMps, 1e-6),
             kMovingShotMinLeadTimeSeconds,
             kMovingShotMaxLeadTimeSeconds);
@@ -881,11 +991,15 @@ public class Superstructure extends SubsystemBase{
         Translation2d leadOffset = new Translation2d(
             fieldRelativeSpeeds.vxMetersPerSecond * leadTimeSeconds,
             fieldRelativeSpeeds.vyMetersPerSecond * leadTimeSeconds);
+
         Translation2d leadCompensatedTarget = hubTarget.minus(leadOffset);
 
         Logger.recordOutput("ShotOnMove/LeadTimeSeconds", leadTimeSeconds);
         Logger.recordOutput("ShotOnMove/LeadOffsetXMeters", leadOffset.getX());
         Logger.recordOutput("ShotOnMove/LeadOffsetYMeters", leadOffset.getY());
+        Logger.recordOutput("ShootOnMove/LeadCompensatedTarget", translationSpeedMps);
+                Logger.recordOutput("ShootOnMove/LeadCompensatedTarget1", leadOffset);
+
         return leadCompensatedTarget;
     }
 
@@ -895,7 +1009,12 @@ public class Superstructure extends SubsystemBase{
             shooterRps = lookUpTable.LookUpTableOutput(getHubDistanceMeters()).getRPS() / 60.0;
         }
 
-        double hoodAngleRad = Units.degreesToRadians(hood.getTargetAngleDegrees());
+        double hoodRotations = hood.getCurrentAngleDegrees();
+        double hoodAngleDegrees = hoodRotations * (35.0 / 5.7);
+        double hoodAngleRad = Units.degreesToRadians(hoodAngleDegrees);
+        Logger.recordOutput("ShotOnMove/HoodRotations", hoodRotations);
+        Logger.recordOutput("ShotOnMove/HoodDegrees", hoodAngleDegrees);
+        
         double shooterLinearSpeedMps = shooterRps * (2.0 * Math.PI) * kShooterWheelRadiusMeters;
         double horizontalSpeedMps = shooterLinearSpeedMps * Math.cos(hoodAngleRad);
         return Math.max(kMovingShotFallbackHorizontalMps, horizontalSpeedMps);
@@ -903,6 +1022,45 @@ public class Superstructure extends SubsystemBase{
 
     public boolean isShootingRequested() {
         return wantedState == SuperstructureWantedState.SHOOTING;
+    }
+
+    public boolean shouldUseShooterCameraInAuto() {
+        return wantedState == SuperstructureWantedState.SHOOTING
+            || wantedState == SuperstructureWantedState.PRE_SHOOT
+            || currentState == SuperstructureCurrentState.PRE_SHOOT
+            || currentState == SuperstructureCurrentState.SHOOTING;
+    }
+
+    public ChassisSpeeds applyShootOnMoveSpeedLock(ChassisSpeeds fieldRelativeDriverSpeeds) {
+        Logger.recordOutput("ShotOnMove/SpeedLockEnabled", false);
+        Logger.recordOutput("ShotOnMove/SpeedLockTargetMps", kShootOnMoveLockedSpeedMps);
+
+        boolean shouldLockSpeed =
+            shootOnMoveEnabled
+                && (wantedState == SuperstructureWantedState.SHOOTING
+                    || currentState == SuperstructureCurrentState.PRE_SHOOT
+                    || currentState == SuperstructureCurrentState.SHOOTING);
+        if (!shouldLockSpeed) {
+            return fieldRelativeDriverSpeeds;
+        }
+
+        double translationSpeedMps = Math.hypot(
+            fieldRelativeDriverSpeeds.vxMetersPerSecond,
+            fieldRelativeDriverSpeeds.vyMetersPerSecond);
+        if (translationSpeedMps < 1e-4) {
+            return new ChassisSpeeds(
+                0.0,
+                0.0,
+                fieldRelativeDriverSpeeds.omegaRadiansPerSecond);
+        }
+
+        double scale = kShootOnMoveLockedSpeedMps / translationSpeedMps;
+        Logger.recordOutput("ShotOnMove/SpeedLockEnabled", true);
+        Logger.recordOutput("ShotOnMove/DriverRequestedSpeedMps", translationSpeedMps);
+        return new ChassisSpeeds(
+            fieldRelativeDriverSpeeds.vxMetersPerSecond * scale,
+            fieldRelativeDriverSpeeds.vyMetersPerSecond * scale,
+            fieldRelativeDriverSpeeds.omegaRadiansPerSecond);
     }
 
     public ChassisSpeeds applyIntakeAssist(
@@ -1002,7 +1160,7 @@ public class Superstructure extends SubsystemBase{
         double current = drive.getPose().getRotation().getRadians();
         double error = MathUtil.angleModulus(desired - current);
         Logger.recordOutput("Hub", Math.abs(Units.radiansToDegrees(error)));
-        return Math.abs(Units.radiansToDegrees(error)) <= kAimToleranceDeg;
+        return Math.abs(Units.radiansToDegrees(error)) >= kAimToleranceDeg;
     }
 
     }    

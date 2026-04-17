@@ -32,6 +32,7 @@ import frc.robot.subsystems.vision.VisionIO.PoseObservationType;
 import frc.robot.subsystems.vision.VisionIO.TargetObservation;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.IntPredicate;
 import org.littletonrobotics.junction.Logger;
 
 public class Vision extends SubsystemBase {
@@ -39,13 +40,19 @@ public class Vision extends SubsystemBase {
     private final VisionIO[] io;
     private final VisionIOInputsAutoLogged[] inputs;
     private final Alert[] disconnectedAlerts;
+    private final IntPredicate poseAcceptanceFilter;
     private final BooleanPublisher hasTargetPublisher =
             NetworkTableInstance.getDefault().getBooleanTopic("/Vision/HasTarget").publish();
     private static final double kLogPeriodSeconds = 0.1;
     private double lastLogTimeSeconds = 0.0;
 
     public Vision(VisionConsumer consumer, VisionIO... io) {
+        this(consumer, cameraIndex -> true, io);
+    }
+
+    public Vision(VisionConsumer consumer, IntPredicate poseAcceptanceFilter, VisionIO... io) {
         this.consumer = consumer;
+        this.poseAcceptanceFilter = poseAcceptanceFilter;
         this.io = io;
 
         // Initialize inputs
@@ -113,6 +120,7 @@ public class Vision extends SubsystemBase {
         List<Pose3d> allRobotPoses = new LinkedList<>();
         List<Pose3d> allRobotPosesAccepted = new LinkedList<>();
         List<Pose3d> allRobotPosesRejected = new LinkedList<>();
+        BestObservation bestObservation = null;
 
         // Loop over cameras
         for (int cameraIndex = 0; cameraIndex < io.length; cameraIndex++) {
@@ -147,18 +155,23 @@ public class Vision extends SubsystemBase {
                         || observation.pose().getY() < 0.0
                         || observation.pose().getY() > aprilTagLayout.getFieldWidth();
 
-            // Add pose to log
-            robotPoses.add(observation.pose());
-            if (rejectPose) {
-                robotPosesRejected.add(observation.pose());
-            } else {
-                    robotPosesAccepted.add(observation.pose());
+                // Add pose to log
+                robotPoses.add(observation.pose());
+                if (rejectPose) {
+                    robotPosesRejected.add(observation.pose());
                 }
 
                 // Skip if rejected
                 if (rejectPose) {
                     continue;
                 }
+
+                if (!poseAcceptanceFilter.test(cameraIndex)) {
+                    robotPosesRejected.add(observation.pose());
+                    continue;
+                }
+
+                robotPosesAccepted.add(observation.pose());
 
                 // Calculate standard deviations
                 double stdDevFactor = Math.pow(observation.averageTagDistance(), 2.0) / observation.tagCount();
@@ -173,11 +186,11 @@ public class Vision extends SubsystemBase {
                     angularStdDev *= cameraStdDevFactors[cameraIndex];
                 }
 
-                // Send vision observation
-                consumer.accept(
-                        observation.pose().toPose2d(),
-                        observation.timestamp(),
-                        VecBuilder.fill(linearStdDev, linearStdDev, angularStdDev));
+                var measurementStdDevs = VecBuilder.fill(linearStdDev, linearStdDev, angularStdDev);
+                double observationScore = scoreObservation(observation, linearStdDev, angularStdDev);
+                if (bestObservation == null || observationScore < bestObservation.score()) {
+                    bestObservation = new BestObservation(observation, measurementStdDevs, observationScore);
+                }
             }
 
             if (shouldLog) {
@@ -213,7 +226,22 @@ public class Vision extends SubsystemBase {
                     allRobotPosesRejected.toArray(new Pose3d[allRobotPosesRejected.size()]));
             lastLogTimeSeconds = nowSeconds;
         }
+
+        if (bestObservation != null) {
+            consumer.accept(
+                    bestObservation.observation().pose().toPose2d(),
+                    bestObservation.observation().timestamp(),
+                    bestObservation.visionMeasurementStdDevs());
+        }
     }
+
+    private static double scoreObservation(VisionIO.PoseObservation observation, double linearStdDev, double angularStdDev) {
+        double angleComponent = Double.isFinite(angularStdDev) ? angularStdDev : 0.0;
+        return linearStdDev + angleComponent - (observation.tagCount() * 0.25);
+    }
+
+    private record BestObservation(
+            VisionIO.PoseObservation observation, Matrix<N3, N1> visionMeasurementStdDevs, double score) {}
 
     @FunctionalInterface
     public interface VisionConsumer {

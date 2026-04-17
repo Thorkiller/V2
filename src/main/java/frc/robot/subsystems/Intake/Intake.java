@@ -57,12 +57,15 @@ public class Intake extends SubsystemBase{
         public boolean isAtHomePosition = false;
         public String currentState = "IDLE";
         public String wantedState = "IDLE";
+        public double intakeMotorTemp = 0;
+        public double intakeWheelTemp = 0;
+        
 
     }
     TalonFXConfiguration talonFXConfigs = new TalonFXConfiguration();
 
     private static final double kSimDtSeconds = 0.02;
-    private static final double kIntakePositionRotations = 17.3;
+    private static final double kIntakePositionRotations = 20;
     private static final double kHomePositionRotations = 0.0;
     private static final double kIntakeVoltage = 9;
     private static final double kHomingVoltage = -3;
@@ -71,10 +74,8 @@ public class Intake extends SubsystemBase{
     private static final double kIntakeI = 0.0;
     private static final double kIntakeD = 0.0;
     private static final double kMaxIntakePidVoltage = 8.0;
-    private static final double kShootPulseStopRotations = 5.0;
-    private static final double kShootPulseInSeconds = 0.15;
-    private static final double kShootPulseOutSeconds = 0.15;
-    private static final double kShootPulseOutVoltage = 2;
+    private static final double kShootPositionRotations = 0;
+    private static final double kMaxShootPidVoltage = 1.5;
     private static final double kIntakeGearRatio = 10.0;
     private static final double kIntakeDrumRadiusMeters = 0.02;
     private static final double kIntakeMassKg = 2.0;
@@ -109,8 +110,6 @@ public class Intake extends SubsystemBase{
     public WantedState wantedState = WantedState.IDLE;
     public CurrentState currentState = CurrentState.IDLE;
     private CurrentState lastState = CurrentState.IDLE;
-    private boolean shootPulseIn = true;
-    private double shootPulseToggleTimestamp = 0.0;
 
     public Intake() {
         
@@ -203,6 +202,8 @@ public class Intake extends SubsystemBase{
     inputs.isAtHomePosition = Math.abs(currentPos - kHomePositionRotations) < 1.0;
         inputs.currentState = currentState.toString();  
         inputs.wantedState = wantedState.toString();
+        inputs.intakeMotorTemp = intakeMotor.getDeviceTemp().getValueAsDouble();
+        inputs.intakeWheelTemp = intakeWheels.getDeviceTemp().getValueAsDouble(); 
 
 
     }
@@ -260,22 +261,17 @@ public class Intake extends SubsystemBase{
 
                 break;
             case SHOOT:
-                if (currentState != lastState) {
-                    shootPulseIn = true;
-                    shootPulseToggleTimestamp = Timer.getFPGATimestamp();
-                }
                 double shootPos = intakeMotor.getPosition().getValueAsDouble();
-                if (shootPos <= kShootPulseStopRotations) {
+                if (Math.abs(shootPos - kShootPositionRotations) <= kPositionToleranceRotations) {
                     intakeMotor.setVoltage(0);
+                    intakePid.reset();
                 } else {
-                    double now = Timer.getFPGATimestamp();
-                    double duration =
-                        shootPulseIn ? kShootPulseInSeconds : kShootPulseOutSeconds;
-                    if (now - shootPulseToggleTimestamp >= duration) {
-                        shootPulseIn = !shootPulseIn;
-                        shootPulseToggleTimestamp = now;
+                    if (currentState != lastState) {
+                        intakePid.reset();
                     }
-                    intakeMotor.setVoltage(shootPulseIn ? kHomingVoltage : kShootPulseOutVoltage);
+                    double shootOutput = intakePid.calculate(shootPos, kShootPositionRotations);
+                    shootOutput = Math.max(-kMaxShootPidVoltage, Math.min(kMaxShootPidVoltage, shootOutput));
+                    intakeMotor.setVoltage(shootOutput);
                 }
                 intakeWheels.setVoltage(-4);
                 break;
@@ -309,6 +305,7 @@ public class Intake extends SubsystemBase{
     }
 
     public void reverse() {
+
         wantedState = WantedState.REVERSE;
     }
 

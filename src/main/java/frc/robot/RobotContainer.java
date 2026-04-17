@@ -15,12 +15,14 @@ import org.ironmaple.simulation.drivesims.SwerveDriveSimulation;
 import org.ironmaple.simulation.seasonspecific.rebuilt2026.RebuiltFuelOnField;
 import org.littletonrobotics.junction.Logger;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
-import org.photonvision.PhotonCamera;
 
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.auto.NamedCommands;
+import com.pathplanner.lib.commands.PathPlannerAuto;
+import com.pathplanner.lib.path.PathPlannerPath;
+import com.pathplanner.lib.util.FlippingUtil;
 
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.geometry.Pose2d;
@@ -39,7 +41,9 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.OptionalDouble;
 import java.util.Random;
 import frc.robot.commands.DriveCommands;
@@ -62,25 +66,27 @@ import frc.robot.util.TunableController;
 import frc.robot.subsystems.vision.VisionIO;
 import frc.robot.subsystems.vision.VisionIO.TargetObservation;
 public class RobotContainer {
-
-  PhotonCamera leftCam = new PhotonCamera("LeftCam");
-PhotonCamera rightCam = new PhotonCamera("RightCam");
     private SwerveDriveSimulation driveSimulation = null;
-        private final Drive driveSub;
-            private final Vision visionpose;
+    private final Drive driveSub;
+    private final Vision visionpose;
 
+    private static final int kShooterCameraIndex = 0;
+    private static final int kLeftCameraIndex = 1;
+    private static final int kRightCameraIndex = 2;
+    private static final String kShooterCameraName = "shooter";
+    private static final String kLeftCameraName = "left1";
+    private static final String kRightCameraName = "right1";
 
+    // robotToCam: translation (x forward, y left, z up) and rotation (roll, pitch, yaw)
+    private final Transform3d robotToShooterCam = new Transform3d(
+            new Translation3d(Units.inchesToMeters(5), Units.inchesToMeters(0.18), Units.inchesToMeters(17)),
+            new Rotation3d(0.0, Math.toRadians(-30), Math.toRadians(0)));
 
-// robotToCam: translation (x forward, y left, z up) and rotation (roll, pitch, yaw)
-Transform3d robotToLeftCam  = new Transform3d(
-    new Translation3d(Units.inchesToMeters(2), Units.inchesToMeters(0.003), Units.inchesToMeters(17)),
-    new Rotation3d(0.0, Math.toRadians(-15), Math.toRadians(180))
-);
+    private final Transform3d robotToLeftCam = new Transform3d(new Translation3d(Units.inchesToMeters(-13), Units.inchesToMeters(0), Units.inchesToMeters(20)),
+    new Rotation3d(0.0, Math.toRadians(10), Math.toRadians(38)));
 
-Transform3d robotToRightCam = new Transform3d(
-    new Translation3d(0.25, -0.18, 0.45),
-    new Rotation3d(0.0, Math.toRadians(-15), Math.toRadians(-10))
-);
+    private final Transform3d robotToRightCam = new Transform3d(new Translation3d(Units.inchesToMeters(10), Units.inchesToMeters(0), Units.inchesToMeters(20)), 
+    new Rotation3d(0.0, Math.toRadians(10), Math.toRadians(-39)));
 
 
 
@@ -88,6 +94,7 @@ Transform3d robotToRightCam = new Transform3d(
     private final Hood hood = new Hood();
     private final Intake intake = new Intake();
     private final LoggedDashboardChooser<Command> autChooser;
+    private final LoggedDashboardChooser<String> driveToPoseChooser;
     
     
 
@@ -126,10 +133,13 @@ Transform3d robotToRightCam = new Transform3d(
                         new ModuleIOTalonFXReal(TunerConstants.BackLeft),
                         new ModuleIOTalonFXReal(TunerConstants.BackRight),
                         (pose) -> {});
+                superstructure = new Superstructure(driveSub, shooter, hood, intake);
                 this.visionpose = new Vision(
                         driveSub,
-                        new VisionIOPhotonVision("shooter", robotToLeftCam)
-                       );
+                        this::shouldAcceptVisionPose,
+                        new VisionIOPhotonVision(kShooterCameraName, robotToShooterCam),
+                        new VisionIOPhotonVision(kLeftCameraName, robotToLeftCam),
+                        new VisionIOPhotonVision(kRightCameraName, robotToRightCam));
 
                 break;
             case SIM:
@@ -148,12 +158,16 @@ Transform3d robotToRightCam = new Transform3d(
                         new ModuleIOTalonFXSim(
                                 TunerConstants.BackRight, driveSimulation.getModules()[3]),
                         driveSimulation::setSimulationWorldPose);
+                superstructure = new Superstructure(driveSub, shooter, hood, intake);
                 visionpose = new Vision(
                         driveSub,
+                        this::shouldAcceptVisionPose,
                         new VisionIOPhotonVisionSim(
-                                "camera0Name", robotToLeftCam, driveSimulation::getSimulatedDriveTrainPose),
+                                kShooterCameraName, robotToShooterCam, driveSimulation::getSimulatedDriveTrainPose),
                         new VisionIOPhotonVisionSim(
-                                "camera1Name", robotToLeftCam, driveSimulation::getSimulatedDriveTrainPose));
+                                kLeftCameraName, robotToLeftCam, driveSimulation::getSimulatedDriveTrainPose),
+                        new VisionIOPhotonVisionSim(
+                                kRightCameraName, robotToRightCam, driveSimulation::getSimulatedDriveTrainPose));
 
                 break;
 
@@ -166,11 +180,11 @@ Transform3d robotToRightCam = new Transform3d(
                         new ModuleIO() {},
                         new ModuleIO() {},
                         (pose) -> {});
-                visionpose = new Vision(driveSub, new VisionIO() {}, new VisionIO() {});
+                superstructure = new Superstructure(driveSub, shooter, hood, intake);
+                visionpose = new Vision(driveSub, new VisionIO() {}, new VisionIO() {}, new VisionIO() {});
 
                 break;
         }
-        superstructure = new Superstructure(driveSub, shooter, hood, intake);
 
         
 
@@ -191,7 +205,7 @@ Transform3d robotToRightCam = new Transform3d(
                 () -> 0,
                 () -> 0,
                 superstructure::getHubHeading)
-            .withTimeout(10),
+            .withTimeout(10).asProxy(),
         superstructure.goIn(false),
         superstructure.setDriving()));
   NamedCommands.registerCommand(
@@ -205,10 +219,20 @@ NamedCommands.registerCommand(
 );
 NamedCommands.registerCommand(
     "drive",
-    superstructure.setDriving()
-);
+    Commands.sequence(superstructure.setDriving(),superstructure.goIn(true)));
+NamedCommands.registerCommand(
+    "faceforward",
+    DriveCommands.joystickDriveAtAngle(
+        driveSub,
+        () -> 0,
+        () -> 0,
+        () -> Rotation2d.fromDegrees(0)).asProxy());
+
 
       autChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
+
+      driveToPoseChooser = new LoggedDashboardChooser<>("Drive To Pose Target");
+      AutoBuilder.getAllAutoNames().forEach(name -> driveToPoseChooser.addOption(name, name));
       autChooser.addOption(
           "Drive Wheel Radius Characterization", DriveCommands.wheelRadiusCharacterization(driveSub));
       autChooser.addOption("Drive Simple FF Characterization", DriveCommands.feedforwardCharacterization(driveSub));
@@ -251,7 +275,13 @@ driveSub.setDefaultCommand(Commands.run(
                 bindControllerLogging("Y", yButton);
                 bindControllerLogging("Start", startButton);
 
-                // rightTrigger.whileTrue(DriveCommands.joystickDriveAtAngle(driveSub, ()-> -joystick.getLeftY(), ()-> -joystick.getLeftX(),()-> (superstructure.getHubHeading())));
+               rightTrigger.whileTrue(
+                   DriveCommands.joystickDriveAtAngle(
+                       driveSub,
+                       () -> -joystick.getLeftY(),
+                       () -> -joystick.getLeftX(),
+                       superstructure::getHubHeading,
+                       superstructure::applyShootOnMoveSpeedLock));
 
 
             leftTrigger.onTrue(Commands.runOnce(() -> {
@@ -296,7 +326,21 @@ driveSub.setDefaultCommand(Commands.run(
 
             bButton.onTrue(superstructure.toggleShootOnMoveCommand());
 
-            xButton.whileTrue(Commands.runOnce(()-> driveSub.setPose(new Pose2d(driveSub.getPose().getX(),driveSub.getPose().getY(),new Rotation2d())))); 
+            xButton.onTrue(Commands.runOnce(() -> {
+                String autoName = driveToPoseChooser.get();
+                if (autoName == null) return;
+                try {
+                    List<PathPlannerPath> paths = PathPlannerAuto.getPathGroupFromAutoFile(autoName);
+                    if (paths.isEmpty()) return;
+                    List<Pose2d> poses = paths.get(0).getPathPoses();
+                    if (poses.isEmpty()) return;
+                    boolean isRed = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
+                    Pose2d startPose = isRed ? FlippingUtil.flipFieldPose(poses.get(0)) : poses.get(0);
+                    driveSub.setPose(startPose);
+                } catch (Exception e) {}
+            }));
+
+            joystick.povUp().whileTrue(Commands.defer(this::buildDriveToPoseCommand, java.util.Set.of(driveSub)));
 
 
     
@@ -351,6 +395,7 @@ driveSub.setDefaultCommand(Commands.run(
         driverFieldSpeeds,
         visionLateralErrorMeters,
         hasVisionTarget);
+    assistedFieldSpeeds = superstructure.applyShootOnMoveSpeedLock(assistedFieldSpeeds);
 
     boolean isFlipped = DriverStation.getAlliance().isPresent()
         && DriverStation.getAlliance().get() == Alliance.Red;
@@ -400,12 +445,104 @@ driveSub.setDefaultCommand(Commands.run(
     return OptionalDouble.of(bestSumYaw / (bestEnd - bestStart + 1));
   }
 
+  private boolean shouldAcceptVisionPose(int cameraIndex) {
+    boolean shooterCameraEnabled;
+
+    if (DriverStation.isTeleopEnabled()) {
+      shooterCameraEnabled = true;
+    } else if (DriverStation.isDisabled()) {
+      shooterCameraEnabled = true;
+    } else if (DriverStation.isAutonomousEnabled()) {
+      shooterCameraEnabled = superstructure != null
+          && superstructure.shouldUseShooterCameraInAuto();
+    } else {
+      shooterCameraEnabled = false;
+    }
+
+    Logger.recordOutput("Vision/ShooterCameraEnabled", shooterCameraEnabled);
+
+    if (cameraIndex != kShooterCameraIndex) {
+      return DriverStation.isTeleopEnabled();
+    }
+
+    return shooterCameraEnabled;
+  }
+
   private boolean shouldSwitchSuperstructure() {
     return superstructureSwitchRng.nextInt(100) < 81;
   }
 
+private Command buildDriveToPoseCommand() {
+    String autoName = driveToPoseChooser.get();
+    if (autoName == null) return Commands.none();
+
+    List<PathPlannerPath> paths;
+    try {
+        paths = PathPlannerAuto.getPathGroupFromAutoFile(autoName);
+    } catch (Exception e) {
+        return Commands.none();
+    }
+    if (paths.isEmpty()) return Commands.none();
+
+    boolean isRed = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
+
+    List<Pose2d> allPoses = new ArrayList<>();
+    for (PathPlannerPath path : paths) {
+        List<Pose2d> pathPoses = path.getPathPoses();
+        // subsample: every 10th pose + always include the last
+        for (int i = 0; i < pathPoses.size(); i++) {
+            if (i % 10 == 0 || i == pathPoses.size() - 1) {
+                Pose2d p = isRed ? FlippingUtil.flipFieldPose(pathPoses.get(i)) : pathPoses.get(i);
+                allPoses.add(p);
+            }
+        }
+    }
+    if (allPoses.isEmpty()) return Commands.none();
+
+    driveSub.setPose(allPoses.get(0));
+
+    List<Command> commands = new ArrayList<>();
+    for (int i = 0; i < allPoses.size(); i++) {
+        double tolerance = (i == allPoses.size() - 1) ? 0.05 : 0.25;
+        commands.add(pidDriveToPose(allPoses.get(i), tolerance));
+    }
+    return Commands.sequence(commands.toArray(new Command[0]));
+}
+
+private Command pidDriveToPose(Pose2d target, double translationToleranceMeters) {
+    var xPid = new edu.wpi.first.math.controller.PIDController(3.0, 0, 0.0);
+    var yPid = new edu.wpi.first.math.controller.PIDController(3.0, 0, 0.0);
+    var thetaPid = new edu.wpi.first.math.controller.ProfiledPIDController(
+        2.0, 0.0, 0.1,
+        new edu.wpi.first.math.trajectory.TrapezoidProfile.Constraints(6, 20));
+    thetaPid.enableContinuousInput(-Math.PI, Math.PI);
+
+    return Commands.run(() -> {
+        Pose2d current = driveSub.getPose();
+        double xSpeed = xPid.calculate(current.getX(), target.getX());
+        double ySpeed = yPid.calculate(current.getY(), target.getY());
+        double omega = thetaPid.calculate(
+            current.getRotation().getRadians(), target.getRotation().getRadians());
+        driveSub.runVelocity(ChassisSpeeds.fromFieldRelativeSpeeds(
+            xSpeed, ySpeed, omega, current.getRotation()));
+    }, driveSub)
+    .until(() -> driveSub.getPose().getTranslation().getDistance(target.getTranslation()) < translationToleranceMeters)
+    .finallyDo(() -> { xPid.close(); yPid.close(); });
+}
+
 public Command getAutonomousCommand() {
+    // Command selectedAuto = autChooser.get();
+    // if (selectedAuto instanceof PathPlannerAuto pathPlannerAuto
+    //     && pathPlannerAuto.getStartingPose() != null) {
+    //   return Commands.sequence(
+    //       AutoBuilder.resetOdom(pathPlannerAuto.getStartingPose()),
+    //       selectedAuto.asProxy());
+    // }
+    // return selectedAuto;
+
     return autChooser.get();
+
+
 
   }
 

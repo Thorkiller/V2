@@ -36,6 +36,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 public class DriveCommands {
     private static final double DEADBAND = 0.1;
@@ -99,6 +100,15 @@ public class DriveCommands {
      */
     public static Command joystickDriveAtAngle(
             Drive drive, DoubleSupplier xSupplier, DoubleSupplier ySupplier, Supplier<Rotation2d> rotationSupplier) {
+        return joystickDriveAtAngle(drive, xSupplier, ySupplier, rotationSupplier, speeds -> speeds);
+    }
+
+    public static Command joystickDriveAtAngle(
+            Drive drive,
+            DoubleSupplier xSupplier,
+            DoubleSupplier ySupplier,
+            Supplier<Rotation2d> rotationSupplier,
+            UnaryOperator<ChassisSpeeds> fieldSpeedTransformer) {
 
         // Create PID controller
         ProfiledPIDController angleController = new ProfiledPIDController(
@@ -122,6 +132,7 @@ public class DriveCommands {
                                     linearVelocity.getX() * drive.getMaxLinearSpeedMetersPerSec(),
                                     linearVelocity.getY() * drive.getMaxLinearSpeedMetersPerSec(),
                                     omega);
+                            speeds = fieldSpeedTransformer.apply(speeds);
                             boolean isFlipped = DriverStation.getAlliance().isPresent()
                                     && DriverStation.getAlliance().get() == Alliance.Red;
                             drive.runVelocity(ChassisSpeeds.fromFieldRelativeSpeeds(
